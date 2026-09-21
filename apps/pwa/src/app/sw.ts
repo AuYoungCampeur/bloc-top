@@ -126,7 +126,8 @@ const htmlCache: RuntimeCaching = {
 
 // API 数据缓存策略 - NetworkFirst (确保数据新鲜)
 const apiCache: RuntimeCaching = {
-  matcher: ({ url }) => url.pathname.startsWith("/api/"),
+  // Beta 在提交后必须立即可见，不走离线 API 缓存。
+  matcher: ({ url }) => url.pathname.startsWith("/api/") && url.pathname !== "/api/beta",
   handler: new NetworkFirst({
     cacheName: SW_API_CACHE.CACHE_NAME,
     networkTimeoutSeconds: SW_API_CACHE.NETWORK_TIMEOUT,

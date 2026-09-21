@@ -13,6 +13,7 @@ interface BetaListDrawerProps {
   routeName: string
   routeId: number
   onAddBeta?: () => void
+  onRefresh: () => Promise<boolean>
 }
 
 // Beta 视频图标（不强调具体平台）
@@ -25,15 +26,12 @@ export function BetaListDrawer({
   routeName,
   routeId,
   onAddBeta,
+  onRefresh,
 }: BetaListDrawerProps) {
   const t = useTranslations('Beta')
   const tCommon = useTranslations('Common')
-  // 手动刷新获取的数据（优先于 props 数据）
-  const [refreshedLinks, setRefreshedLinks] = useState<BetaLink[] | null>(null)
   const [refreshing, setRefreshing] = useState(false)
-
-  // 优先使用刷新后的数据，否则使用 props 数据（来自 ISR 缓存）
-  const betaLinks = refreshedLinks ?? propsBetaLinks
+  const betaLinks = propsBetaLinks
 
   /**
    * 手动刷新 Beta 列表
@@ -44,17 +42,13 @@ export function BetaListDrawer({
 
     setRefreshing(true)
     try {
-      const res = await fetch(`/api/beta?routeId=${routeId}`)
-      const data = await res.json()
-      if (data.success && data.betaLinks) {
-        setRefreshedLinks(data.betaLinks)
-      }
+      await onRefresh()
     } catch {
       // Silent fail — user sees stale data, can retry
     } finally {
       setRefreshing(false)
     }
-  }, [refreshing, routeId])
+  }, [refreshing, routeId, onRefresh])
 
   // 复制成功状态（记录哪个链接被复制）
   const [copiedId, setCopiedId] = useState<string | null>(null)
@@ -126,6 +120,22 @@ export function BetaListDrawer({
           </button>
         )}
 
+        {/* 空列表也允许主动刷新，避免旧页面数据使新增 Beta 长时间不可见。 */}
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-xs" style={{ color: 'var(--theme-on-surface-variant)' }}>
+            {t('videoCount', { count: betaLinks.length })}
+          </span>
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-all active:scale-95 disabled:opacity-50 glass-light"
+            style={{ color: 'var(--theme-on-surface-variant)', borderRadius: 'var(--theme-radius-lg)' }}
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+            {refreshing ? tCommon('refreshing') : tCommon('refresh')}
+          </button>
+        </div>
+
         {betaLinks.length === 0 ? (
           <div className="text-center py-8">
             <div
@@ -151,29 +161,6 @@ export function BetaListDrawer({
           </div>
         ) : (
           <>
-            {/* 刷新按钮区域 */}
-            <div className="flex items-center justify-between mb-3">
-              <span
-                className="text-xs"
-                style={{ color: 'var(--theme-on-surface-variant)' }}
-              >
-                {refreshedLinks ? t('refreshed') : t('fromCache')}
-                {betaLinks.length > 0 && ` · ${t('videoCount', { count: betaLinks.length })}`}
-              </span>
-              <button
-                onClick={handleRefresh}
-                disabled={refreshing}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-all active:scale-95 disabled:opacity-50 glass-light"
-                style={{
-                  color: 'var(--theme-on-surface-variant)',
-                  borderRadius: 'var(--theme-radius-lg)',
-                }}
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-                {refreshing ? tCommon('refreshing') : tCommon('refresh')}
-              </button>
-            </div>
-
             <div className="space-y-2">
               {betaLinks.map((beta, index) => {
               return (

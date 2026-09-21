@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/mongodb'
 import { detectPlatformFromUrl, isXiaohongshuUrl, isXiaohongshuShortUrl, extractXiaohongshuNoteId, extractUrlFromText, normalizeXiaohongshuNoteUrl } from '@/lib/beta-constants'
 import { checkRateLimit, BETA_RATE_LIMIT_CONFIG } from '@/lib/rate-limit'
-import { HTTP_CACHE } from '@/lib/cache-config'
 import { createModuleLogger } from '@/lib/logger'
 import { API_ERROR_CODES, createErrorResponse } from '@/lib/api-error-codes'
 import { getClientIp } from '@/lib/request-utils'
@@ -498,7 +497,7 @@ export async function GET(request: NextRequest) {
       },
       {
         headers: {
-          'Cache-Control': `public, max-age=${HTTP_CACHE.BETA_MAX_AGE}`,
+          'Cache-Control': 'no-store, max-age=0',
         },
       }
     )

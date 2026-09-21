@@ -139,12 +139,13 @@ export function BetaSubmitDrawer({
 
       const data = await response.json()
       setSuccess(true)
+      // 使用 POST 返回的新记录立即更新当前线路，避免再读到缓存中的旧列表。
+      if (data.beta) onSuccess?.(data.beta as BetaLink)
       // 提交成功后缓存昵称和身体数据
       if (nickname.trim()) localStorage.setItem('beta_nickname', nickname.trim())
       updateBodyData({ height, reach })
       setTimeout(() => {
         handleClose()
-        onSuccess?.(data.beta as BetaLink)
       }, 1500)
     } catch (err) {
       setError(err instanceof Error ? err.message : t('submitError'))

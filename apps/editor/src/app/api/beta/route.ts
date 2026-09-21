@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@bloctop/shared/mongodb'
 import { detectPlatformFromUrl, isXiaohongshuUrl, isXiaohongshuShortUrl, extractXiaohongshuNoteId, extractUrlFromText, normalizeXiaohongshuNoteUrl } from '@bloctop/shared/beta-constants'
 import { checkRateLimit, BETA_RATE_LIMIT_CONFIG } from '@bloctop/shared/rate-limit'
-import { HTTP_CACHE } from '@bloctop/shared/cache-config'
 import { createModuleLogger } from '@bloctop/shared/logger'
 import { API_ERROR_CODES, createErrorResponse } from '@bloctop/shared/api-error-codes'
 import { getClientIp } from '@bloctop/shared/request-utils'
@@ -494,7 +493,7 @@ export async function GET(request: NextRequest) {
       },
       {
         headers: {
-          'Cache-Control': `public, max-age=${HTTP_CACHE.BETA_MAX_AGE}`,
+          'Cache-Control': 'no-store, max-age=0',
         },
       }
     )

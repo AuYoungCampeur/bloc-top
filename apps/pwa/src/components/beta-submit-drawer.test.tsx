@@ -262,10 +262,11 @@ describe('BetaSubmitDrawer', () => {
 
     it('提交成功后应调用 onSuccess', async () => {
       const onSuccess = vi.fn()
+      const beta = { id: 'beta-new', platform: 'xiaohongshu', url: 'https://www.xiaohongshu.com/explore/6797869e0000000029017615' }
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ success: true }),
+        json: () => Promise.resolve({ success: true, beta }),
       })
 
       render(<BetaSubmitDrawer {...defaultProps} onSuccess={onSuccess} />)
@@ -281,10 +282,9 @@ describe('BetaSubmitDrawer', () => {
         expect(screen.getByText('submitSuccess')).toBeTruthy()
       })
 
-      // 等待 1500ms 的 setTimeout 触发 onSuccess
       await waitFor(() => {
-        expect(onSuccess).toHaveBeenCalled()
-      }, { timeout: 2000 })
+        expect(onSuccess).toHaveBeenCalledWith(beta)
+      })
     })
   })
 

@@ -3,7 +3,7 @@
  * 测试 Beta 视频列表抽屉的渲染和交互
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@/test/utils'
+import { render, screen, fireEvent, waitFor } from '@/test/utils'
 import { BetaListDrawer } from './beta-list-drawer'
 import type { BetaLink } from '@/types'
 
@@ -45,6 +45,7 @@ describe('BetaListDrawer', () => {
     routeName: '月光',
     routeId: 1,
     onAddBeta: vi.fn(),
+    onRefresh: vi.fn().mockResolvedValue(true),
   }
 
   beforeEach(() => {
@@ -155,16 +156,14 @@ describe('BetaListDrawer', () => {
       expect(screen.getByText('refresh')).toBeTruthy()
     })
 
-    it('刷新按钮应可点击', async () => {
-      // Mock fetch
-      global.fetch = vi.fn().mockResolvedValue({
-        json: () => Promise.resolve({ success: true, betaLinks: [] }),
-      })
-
-      render(<BetaListDrawer {...defaultProps} />)
+    it('空列表也能刷新，并将刷新交给父组件', async () => {
+      const onRefresh = vi.fn().mockResolvedValue(true)
+      render(<BetaListDrawer {...defaultProps} betaLinks={[]} onRefresh={onRefresh} />)
 
       const refreshButton = screen.getByText('refresh').closest('button')
       expect((refreshButton as HTMLButtonElement).disabled).toBe(false)
+      fireEvent.click(refreshButton!)
+      await waitFor(() => expect(onRefresh).toHaveBeenCalledOnce())
     })
   })
 

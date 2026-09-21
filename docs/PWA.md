@@ -44,8 +44,8 @@
 - 客户端 `staleTimes` 的 dynamic/static 均设为一年；后台写入对已打开页面的可见性需单独验证。
 - SW R2 图片：优先离线图片缓存，回退 CacheFirst，200 项/一年。Next Image minimumCacheTTL 也为一年。
 - SW HTML：NetworkFirst，5 秒超时、50 项/7 天。
-- SW API：NetworkFirst，3 秒超时、100 项/一天；matcher 广泛覆盖 `/api/`，没有显式排除 auth 路径，后续应核实敏感 GET 的缓存行为。
-- 天气：服务端内存缓存与 HTTP 缓存均一小时；Beta GET HTTP 缓存一天。
+- SW API：NetworkFirst，3 秒超时、100 项/一天；`/api/beta` 不进入该缓存。其他 `/api/` 路径仍广泛匹配，没有显式排除 auth 路径，后续应核实敏感 GET 的缓存行为。
+- 天气：服务端内存缓存与 HTTP 缓存均一小时；Beta GET 返回 `no-store`。线路详情打开时实时读取 Beta，提交成功后直接用 POST 返回的记录更新当前界面；未重新打开详情的其他客户端不会收到实时推送。
 
 `FaceImageCache.invalidate(faceKey)` 生成 `?t=timestamp` URL 并通知订阅者；未失效时使用共享 `IMAGE_VERSION`。这个内存事件不会同步到另一个浏览器或 PWA 应用。更换图片后的跨端可见性不能只靠 Editor 的本地 invalidate。
 

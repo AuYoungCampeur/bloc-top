@@ -2,7 +2,7 @@
  * RouteDetailDrawer 组件测试
  * 测试线路详情抽屉的渲染和交互
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@/test/utils'
 import { RouteDetailDrawer } from './route-detail-drawer'
 import type { Route, Crag } from '@/types'
@@ -94,6 +94,17 @@ describe('RouteDetailDrawer', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => ({
+      ok: true,
+      json: async () => ({
+        success: true,
+        betaLinks: url.includes('routeId=1') ? mockRoute.betaLinks : [],
+      }),
+    })))
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
   })
 
   describe('渲染', () => {
@@ -186,6 +197,26 @@ describe('RouteDetailDrawer', () => {
   })
 
   describe('Beta 按钮', () => {
+    it('打开旧页面的线路详情时应从实时接口显示新 Beta', async () => {
+      const newBeta = {
+        id: 'beta-new',
+        platform: 'xiaohongshu' as const,
+        url: 'https://www.xiaohongshu.com/explore/6797869e0000000029017615',
+      }
+      vi.mocked(global.fetch).mockImplementation(async () => ({
+        ok: true,
+        json: async () => ({ success: true, betaLinks: [newBeta] }),
+      } as Response))
+
+      render(<RouteDetailDrawer {...defaultProps} route={mockRouteNoBeta} />)
+
+      await waitFor(() => expect(screen.getByText('1')).toBeTruthy())
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/beta?routeId=2&_='),
+        expect.objectContaining({ cache: 'no-store' }),
+      )
+    })
+
     it('有 Beta 视频时应显示数量', () => {
       render(<RouteDetailDrawer {...defaultProps} />)
 

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import { useTranslations } from 'next-intl'
 import { ZoomIn } from 'lucide-react'
@@ -64,6 +64,9 @@ export function RouteDetailDrawer({
 
   const [imageAspectRatio, setImageAspectRatio] = useState<number | undefined>(undefined)
   const [localBetaLinks, setLocalBetaLinks] = useState<BetaLink[] | null>(null)
+  const betaRequestSequence = useRef(0)
+  const routeId = route?.id
+  const routeBetaLinks = route?.betaLinks
   const [activeAnnotationIndex, setActiveAnnotationIndex] = useState(0)
 
   // Overlay mode derivation (replaces 5 inline booleans)
@@ -87,6 +90,7 @@ export function RouteDetailDrawer({
   // Reset non-image state on route change
   useEffect(() => {
     if (route) {
+      betaRequestSequence.current += 1
       setLocalBetaLinks(null)
       animation.resetAnimation()
       setImageAspectRatio(undefined)
@@ -95,21 +99,42 @@ export function RouteDetailDrawer({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only on route.id change
   }, [route?.id])
 
-  // Fetch latest betas from API
-  const fetchLatestBetas = useCallback(async (skipCache = false) => {
-    if (!route) return
+  // 线路页可能来自长时间缓存；打开详情或手动刷新时读取最新 Beta。
+  const fetchLatestBetas = useCallback(async (signal?: AbortSignal): Promise<boolean> => {
+    if (!routeId) return false
+    const requestSequence = ++betaRequestSequence.current
     try {
-      const res = await fetch(`/api/beta?routeId=${route.id}`,
-        skipCache ? { cache: 'no-cache' } : undefined
-      )
+      const res = await fetch(`/api/beta?routeId=${routeId}&_=${Date.now()}`, {
+        cache: 'no-store',
+        signal,
+      })
+      if (!res.ok) return false
       const data = await res.json()
-      if (data.success && data.betaLinks) {
+      if (!signal?.aborted && requestSequence === betaRequestSequence.current && data.success && Array.isArray(data.betaLinks)) {
         setLocalBetaLinks(data.betaLinks)
+        return true
       }
     } catch (err) {
-      console.error('[RouteDetailDrawer] Failed to fetch betas:', err)
+      if (!signal?.aborted) console.error('[RouteDetailDrawer] Failed to fetch betas:', err)
     }
-  }, [route])
+    return false
+  }, [routeId])
+
+  useEffect(() => {
+    if (!isOpen || !routeId) return
+    const controller = new AbortController()
+    void fetchLatestBetas(controller.signal)
+    return () => controller.abort()
+  }, [isOpen, routeId, fetchLatestBetas])
+
+  const handleBetaSubmitted = useCallback((beta: BetaLink) => {
+    // POST 已返回完整记录；直接显示，避免旧 GET 响应覆盖新提交。
+    betaRequestSequence.current += 1
+    setLocalBetaLinks(current => {
+      const links = current ?? routeBetaLinks ?? []
+      return links.some(link => link.id === beta.id) ? links : [...links, beta]
+    })
+  }, [routeBetaLinks])
 
   // Route selection handler
   const handleRouteSelect = useCallback((routeId: number) => {
@@ -253,6 +278,7 @@ export function RouteDetailDrawer({
         betaLinks={betaLinks}
         routeName={route.name}
         routeId={route.id}
+        onRefresh={fetchLatestBetas}
         onAddBeta={() => {
           setBetaListOpen(false)
           setBetaSubmitOpen(true)
@@ -264,7 +290,7 @@ export function RouteDetailDrawer({
         onClose={() => setBetaSubmitOpen(false)}
         routeId={route.id}
         routeName={route.name}
-        onSuccess={() => fetchLatestBetas(true)}
+        onSuccess={handleBetaSubmitted}
       />
     </>
   )

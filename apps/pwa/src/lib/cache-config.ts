@@ -111,9 +111,6 @@ export const API_CACHE = {
 export const HTTP_CACHE = {
   /** 天气 API 响应 max-age */
   WEATHER_MAX_AGE: SECONDS.HOUR, // 1 小时
-
-  /** Beta 列表 API 响应 max-age */
-  BETA_MAX_AGE: SECONDS.DAY, // 1 天
 } as const
 
 // ==================== 离线缓存配置 ====================
