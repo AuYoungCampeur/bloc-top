@@ -1,5 +1,7 @@
 # 寻岩记 (BlocTop) — iOS App PRD
 
+> **历史方案（2026-02，2026-09-20 标注）**：保留迁移需求与设计背景，未经本轮逐项更新；不代表原生 iOS 已实现。当前架构以 [ARCHITECTURE.md](ARCHITECTURE.md) 为准，后续优先处理 [管理后台](ADMIN.md)。
+
 > Product Requirements Document for migrating PWA user-facing features to native iOS.
 > Generated from PWA codebase analysis. Editor features excluded (remains as standalone web app).
 

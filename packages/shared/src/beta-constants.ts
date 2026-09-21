@@ -37,7 +37,8 @@ export function extractUrlFromText(text: string): string | null {
 
   // 正则匹配 URL（支持 http 和 https）
   // 匹配模式：http(s):// 开头，直到遇到空白字符或中文字符
-  const urlPattern = /https?:\/\/[^\s\u4e00-\u9fa5]+/gi
+  // 停在 Markdown 链接的方括号/圆括号前，避免把 ](url) 拼进 URL
+  const urlPattern = /https?:\/\/[^\s\u4e00-\u9fa5<>\[\]()]+/gi
   const matches = text.match(urlPattern)
 
   if (!matches || matches.length === 0) {
@@ -56,12 +57,36 @@ export function extractUrlFromText(text: string): string | null {
   return matches[0].replace(/[,，。！!?？]+$/, '')
 }
 
-/**
- * 验证 URL 是否为小红书链接
- */
+const XIAOHONGSHU_SHORT_DOMAINS = ['xhslink.com', 'xhslink.cn']
+
+function isDomainOrSubdomain(hostname: string, domain: string): boolean {
+  return hostname === domain || hostname.endsWith(`.${domain}`)
+}
+
+function getHttpUrl(url: string): URL | null {
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+/** 验证 URL 是否为小红书短链接（支持 .com 和 .cn） */
+export function isXiaohongshuShortUrl(url: string): boolean {
+  const parsed = getHttpUrl(url)
+  return parsed !== null && XIAOHONGSHU_SHORT_DOMAINS.some(domain =>
+    isDomainOrSubdomain(parsed.hostname, domain)
+  )
+}
+
+/** 验证 URL 是否为小红书笔记或短链接 */
 export function isXiaohongshuUrl(url: string): boolean {
-  const urlLower = url.toLowerCase()
-  return urlLower.includes('xiaohongshu.com') || urlLower.includes('xhslink.com')
+  const parsed = getHttpUrl(url)
+  return parsed !== null && (
+    isDomainOrSubdomain(parsed.hostname, 'xiaohongshu.com') ||
+    isXiaohongshuShortUrl(url)
+  )
 }
 
 /**
@@ -91,7 +116,7 @@ export function extractXiaohongshuNoteId(url: string): string | null {
     const urlObj = new URL(url)
 
     // 只处理 xiaohongshu.com 域名
-    if (!urlObj.hostname.includes('xiaohongshu.com')) {
+    if (!getHttpUrl(url) || !isDomainOrSubdomain(urlObj.hostname, 'xiaohongshu.com')) {
       return null
     }
 
@@ -113,4 +138,24 @@ export function extractXiaohongshuNoteId(url: string): string | null {
   } catch {
     return null
   }
+}
+
+/**
+ * 短链接偶尔会落到登录页；只在 redirectPath 指向小红书笔记时还原目标 URL。
+ * 还原的是分享链接，不代表无需登录即可在小红书查看内容。
+ */
+export function normalizeXiaohongshuNoteUrl(url: string): string {
+  const parsed = getHttpUrl(url)
+  if (!parsed || !isDomainOrSubdomain(parsed.hostname, 'xiaohongshu.com') || parsed.pathname !== '/login') {
+    return url
+  }
+
+  const redirectPath = parsed.searchParams.get('redirectPath')
+  if (!redirectPath || !extractXiaohongshuNoteId(redirectPath)) {
+    return url
+  }
+
+  const noteUrl = new URL(redirectPath)
+  noteUrl.protocol = 'https:'
+  return noteUrl.toString()
 }

@@ -30,7 +30,7 @@ export {
   TOPO_LINE_CONFIG, TOPO_MARKER_CONFIG, TOPO_ANIMATION_CONFIG, TOPO_MULTI_LINE_CONFIG,
 } from './topo-constants'
 export {
-  BETA_PLATFORMS, extractUrlFromText, isXiaohongshuUrl, detectPlatformFromUrl, extractXiaohongshuNoteId,
+  BETA_PLATFORMS, extractUrlFromText, isXiaohongshuUrl, isXiaohongshuShortUrl, detectPlatformFromUrl, extractXiaohongshuNoteId, normalizeXiaohongshuNoteUrl,
 } from './beta-constants'
 export {
   V_GRADES, GRADE_GROUPS, getGradesByValue, getGradesByValues,

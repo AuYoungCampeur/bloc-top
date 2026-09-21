@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/mongodb'
-import { detectPlatformFromUrl, isXiaohongshuUrl, extractXiaohongshuNoteId, extractUrlFromText } from '@/lib/beta-constants'
+import { detectPlatformFromUrl, isXiaohongshuUrl, isXiaohongshuShortUrl, extractXiaohongshuNoteId, extractUrlFromText, normalizeXiaohongshuNoteUrl } from '@/lib/beta-constants'
 import { checkRateLimit, BETA_RATE_LIMIT_CONFIG } from '@/lib/rate-limit'
 import { HTTP_CACHE } from '@/lib/cache-config'
 import { createModuleLogger } from '@/lib/logger'
@@ -21,10 +21,8 @@ const log = createModuleLogger('API')
  * 需要使用移动端 UA 才能正常解析
  */
 async function resolveShortUrl(url: string): Promise<string> {
-  const urlObj = new URL(url)
-
-  // 仅处理小红书短链接（xhslink.com）
-  if (!urlObj.hostname.includes('xhslink.com')) {
+  // 仅解析经过域名验证的小红书短链接（xhslink.com / xhslink.cn）
+  if (!isXiaohongshuShortUrl(url)) {
     return url
   }
 
@@ -47,7 +45,7 @@ async function resolveShortUrl(url: string): Promise<string> {
     log.debug(`Resolved short URL: ${url} -> ${finalUrl}`, {
       action: 'resolveShortUrl',
     })
-    return finalUrl
+    return normalizeXiaohongshuNoteUrl(finalUrl)
   } catch (error) {
     // 解析失败时返回原 URL
     log.warn(`Failed to resolve short URL: ${url}`, {

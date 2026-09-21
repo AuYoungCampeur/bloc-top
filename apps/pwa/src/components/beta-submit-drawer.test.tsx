@@ -132,6 +132,30 @@ describe('BetaSubmitDrawer', () => {
         expect(screen.getByText('urlDetected')).toBeTruthy()
       })
     })
+
+    it('应该接受并提交小红书 .cn 分享文本中的短链', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true }),
+      })
+      render(<BetaSubmitDrawer {...defaultProps} />)
+
+      const urlInput = screen.getByPlaceholderText('urlPlaceholder') as HTMLInputElement
+      fireEvent.change(urlInput, {
+        target: { value: '福州罗源野抱 - 晨钟暮鼓 V6 [https://xhslink.cn/o/AsU8BTN9oIl](https://xhslink.cn/o/AsU8BTN9oIl) Copy and open rednote to view the note' },
+      })
+
+      expect(urlInput.value).toBe('https://xhslink.cn/o/AsU8BTN9oIl')
+      expect(screen.getByText('urlDetected')).toBeTruthy()
+      fireEvent.click(screen.getByText('submit'))
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith('/api/beta', expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('"url":"https://xhslink.cn/o/AsU8BTN9oIl"'),
+        }))
+      })
+    })
   })
 
   describe('表单提交', () => {
