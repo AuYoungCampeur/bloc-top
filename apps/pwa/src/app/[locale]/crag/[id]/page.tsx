@@ -1,20 +1,13 @@
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
-import { getCragById, getAllCrags, getRoutesByCragId } from '@/lib/db'
+import { getCragById, getRoutesByCragId } from '@/lib/db'
 import CragDetailClient from './crag-detail-client'
 
-// ISR: 每月重新验证 - 配置见 @/lib/cache-config.ts
-export const revalidate = 2592000 // 30 天 (秒)
+// Database content is read at request time; building does not need database credentials.
+export const dynamic = 'force-dynamic'
 
 interface PageProps {
   params: Promise<{ id: string }>
-}
-
-export async function generateStaticParams() {
-  const crags = await getAllCrags()
-  return crags.map((crag) => ({
-    id: crag.id,
-  }))
 }
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {

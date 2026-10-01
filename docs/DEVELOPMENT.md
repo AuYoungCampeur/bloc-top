@@ -4,7 +4,7 @@
 
 ## 1. 环境准备
 
-仓库 `.nvmrc` 为 Node 20，packageManager 固定为 pnpm 10.29.3。首次安装：
+仓库 `.nvmrc` 为 Node 22，根 `engines` 支持 22/24，packageManager 固定为 pnpm 10.29.3。Node 20 已结束官方支持；本地采用既有验证使用的 Node 22 LTS，CI 同时验证 Vercel 项目使用的 Node 24。版本状态见 [Node.js 官方发布记录](https://nodejs.org/en/about/previous-releases)。首次安装：
 
 ```bash
 nvm use
@@ -91,7 +91,9 @@ pnpm --filter @bloctop/pwa exec next start -p 3000
 pnpm --filter @bloctop/editor exec next start -p 3001
 ```
 
-两个应用的 `start` 都只是 `next start`，并不会自动沿用 Editor dev 的 3001。PWA 开发模式禁用 SW，离线验收需生产构建预览。构建可能因页面预渲染访问数据库，或字体/外部资源需求而依赖可用环境；本轮没有验证干净安装后的生产构建。
+两个应用的 `start` 都只是 `next start`，并不会自动沿用 Editor dev 的 3001。PWA 开发模式禁用 SW，离线验收需生产构建预览。数据页在请求时读取 MongoDB；构建无需数据库、认证、邮件或 R2 凭据，但字体构建仍需要外网。运行这些页面和 API 时仍需真实环境配置。
+
+`.github/workflows/ci.yml` 在 PR 和 main/codex 分支提交时，以 Node 22/24 执行 frozen install、lint、类型、隔离 Vitest、Chromium 组件测试和无服务凭据双应用构建。远端执行结果应独立核对；组件测试不覆盖完整用户业务流程。
 
 部署相关联动：域名与 HTTPS、Cookie 共享、可信 origins、Passkey RP ID、R2 图片域名与 CORS、两端一致的重验证密钥、Editor 到 PWA webhook 的可达性。
 

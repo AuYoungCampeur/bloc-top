@@ -1,6 +1,9 @@
 {
   "name": "bloctop",
   "private": true,
+  "engines": {
+    "node": "^22.0.0 || ^24.0.0"
+  },
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",

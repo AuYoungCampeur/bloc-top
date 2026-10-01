@@ -1,6 +1,6 @@
 # 技术架构
 
-> 核对日期：2026-09-20。描述当前仓库实现，不推断生产部署状态。阅读入口：[README](../README.md)。
+> 架构基线核对于 2026-09-20，认证、Beta、编辑状态、缓存与构建边界于 2026-10-02 更新。描述仓库实现；逐次验收见 [产品迭代记录](PRODUCT.md)。阅读入口：[README](../README.md)。
 
 ## 1. 应用边界
 
@@ -43,7 +43,7 @@ PWA 页面在 `apps/pwa/src/app/[locale]/`，支持 `zh`、`en`、`fr`；路由�
 
 Editor 页面直接位于 `apps/editor/src/app/`：`/`、`/crags`、`/crags/[id]`、`/faces`、`/routes`、`/cities`、`/users`。无 locale 前缀，也没有 `/editor` 前缀。Beta 已合并进 `/routes` 的标签页，不再有独立 `/betas` 页面。当前工作区另有尚未提交的 `/crags/new`，见[后台指南](ADMIN.md)。
 
-两端 `src/app/api/` 存在同名路由实现，不能把同一路径视为同一份 API。后台 API 清单及差异见[后台指南](ADMIN.md)。
+两端 `src/app/api/` 存在同名路由实现，不能把同一路径视为同一份 API。Beta 已通过 shared `createBetaHandlers` 统一合约，两个应用仅注入认证/数据库/权限依赖。后台 API 清单及其他差异见[后台指南](ADMIN.md)。
 
 ## 3. 数据模型
 
@@ -112,9 +112,13 @@ Server Component → 共享 DB 函数 → MongoDB → Client Component → 本�
 
 首页与线路列表先读取城市选择 Cookie，按区县或地级市加载数据。岩场详情按岩场 ID 加载。DB 查询里的 React `cache()` 用于渲染请求中的复用，不能等同于数据库长期缓存。天气等交互数据经 Route Handler 与 SWR 获取。
 
+首页/线路列表先读取请求 Cookie 后才查询数据库，岩场详情明确动态渲染，不在构建时枚举数据库记录。双应用构建无需服务凭据；运行时仍需配置数据库等依赖。
+
 ### Editor 保存
 
 Client Component / hook → 同源 Editor API → session 校验 → 岩场权限校验 → MongoDB 或 R2 → 更新本地界面 → 通知 PWA 重验证。
+
+线路工作台以线路集合和选中 ID 为单一数据来源。Beta 更新与线路表单/Topo 草稿独立；慢保存采用服务端持久化基线，同时保留提交后继续输入的草稿和已经完成的 Beta 操作。
 
 跨应用通知由 [revalidate-pwa.ts](../apps/editor/src/lib/revalidate-pwa.ts) 实现：携带 `REVALIDATE_SECRET` 的 Bearer token 调用 PWA `/api/revalidate`。岩场相关帮助函数展开三种语言的岩场页、首页和线路列表页。两端需要配置一致的密钥。
 
@@ -125,6 +129,7 @@ R2 操作与 MongoDB 更新没有跨服务事务。改名、删除、覆盖图�
 ## 6. 认证、缓存与部署边界
 
 - 登录在 PWA 完成：Magic Link、密码、Passkey；两端各建 better-auth 实例，共享数据库、session 与签名密钥。
+- 两端认证与登录回跳复用 shared 环境配置；localhost 与生产共享会话，独立 Vercel Preview 使用 host-only Cookie，跨 Preview 登录尚未建立。
 - 全局角色是 `admin | user`；`manager` 是岩场授权，不是第三种全局角色。服务端 API 才是写入权限边界，详见[认证文档](AUTH.md)。
 - 缓存分为 Next 页面/路由缓存、HTTP 缓存、Service Worker、FaceImageCache 内存版本、IndexedDB 离线资料，详见[PWA 文档](PWA.md)。单一失效操作不能刷新所有层。
 - PWA 构建使用 webpack 以生成 Serwist Service Worker；开发模式使用 Turbopack 且关闭 SW。Editor 构建使用默认 `next build`。

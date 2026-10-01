@@ -40,7 +40,7 @@ docs/                  当前项目文档与保留的 iOS 历史 PRD
 ## 本地准备
 
 ```bash
-nvm use                         # .nvmrc 为 Node 20
+nvm use                         # .nvmrc 为 Node 22
 corepack enable
 pnpm install --frozen-lockfile
 

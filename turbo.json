@@ -1,5 +1,6 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalDependencies": [".nvmrc"],
   "globalEnv": [
     "VERCEL_ENV",
     "VERCEL_URL",

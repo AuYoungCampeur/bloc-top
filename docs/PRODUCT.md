@@ -68,6 +68,8 @@ PM/Team Lead 负责优先级、数据边界、架构评审与集成验收；后�
 | --- | --- |
 | 2026-10-02 起始检查 | 当前基线 `5754b72`；生产 Beta GET 仍返回 `no-store`、`x-vercel-cache: MISS`。新一轮尚未进行生产数据写入或全流程验收 |
 | 2026-10-02 基础改进工作区 | `pnpm install --frozen-lockfile --offline`、`pnpm lint`、`pnpm typecheck`、`pnpm test:run`、`pnpm test:ct`、`pnpm build` 均通过；Playwright 为 12 项组件测试，lint 有既有警告。Vitest 覆盖认证库隔离会话、Beta API 权限/并发、后台异步编辑与 SW 缓存策略；不代表真实邮件、Passkey、生产提交或浏览器离线验收 |
+| 2026-10-02 已提交源码快照 | `242e44a` 导出到空目录，未复制 env 或工作区既有开发文件；frozen offline install 和 1,218 项 Vitest 通过。首次无凭据构建暴露岩场枚举访问 DB；移除构建时查询并补请求状态读取顺序后，Node 22 下强制重新执行双应用构建通过（未使用 Turbo 构建缓存）。CI 远端结果仍待核对 |
+| 2026-10-02 Vercel 设置只读核对 | `escalade-pwa` / `bloc-top-editor` Root Directory 分别为 `apps/pwa` / `apps/editor`，Node 为 24.x；仅核对配置，未修改真实数据库或上传对象 |
 | 工作区既有开发 | `.serena/project.yml`、未跟踪的新建岩场页面及权限面板测试保留；未评审内容不会直接当作已交付功能 |
 
 每次完成迭代后补充实际命令、行为证据和剩余工作；完成计划不能代替产品验收。
