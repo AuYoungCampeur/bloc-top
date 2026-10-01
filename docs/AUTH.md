@@ -1,6 +1,6 @@
 # 认证与权限
 
-> 核对日期：2026-09-20。以两端 auth 配置、共享权限函数和 API 实现为准。
+> 认证环境与 Beta API 更新于 2026-10-02；其他权限描述基于 2026-09-20 的源码检查。以当前实现和验证记录为准。
 
 ## 登录与共享会话
 
@@ -9,20 +9,20 @@ PWA 提供 Magic Link（Resend 邮件）、邮箱密码、Passkey 登录界面�
 - PWA：[auth.ts](../apps/pwa/src/lib/auth.ts)、[auth-client.ts](../apps/pwa/src/lib/auth-client.ts)。
 - Editor：[auth.ts](../apps/editor/src/lib/auth.ts)、[auth-client.ts](../apps/editor/src/lib/auth-client.ts)。
 - 两端均提供 `/api/auth/[...all]`；Editor 没有 Magic Link 插件，登录界面在 PWA。
-- 两端通过 MongoDB 的认证集合及 `.bouldering.top` 域 Cookie 共享会话；需要一致的数据库和 `BETTER_AUTH_SECRET`。
+- 两端通过 MongoDB 的认证集合共享会话；生产使用 `.bouldering.top` 域 Cookie，localhost 使用相同名称的 host-only Cookie（Cookie 不按端口隔离）。需要一致的数据库和 `BETTER_AUTH_SECRET`。
 - `getAuth()` 与 MongoDB 连接均为懒初始化，避免模块加载立即访问数据库；这不保证页面构建阶段完全不访问数据库。
 
-当前配置：Magic Link 10 分钟有效，session 30 天、一天更新一次，session Cookie 缓存 5 分钟，better-auth 请求限流窗口 60 秒/10 次。Passkey 的生产 RP ID 为 `bouldering.top`，开发为 `localhost`；两端开发 origin 分别是 3000/3001。
+当前配置：Magic Link 10 分钟有效，session 30 天、一天更新一次，session Cookie 缓存 5 分钟，better-auth 请求限流窗口 60 秒/10 次。Passkey 的生产 RP ID 为 `bouldering.top`，开发为 `localhost`；两端共同信任 localhost 3000/3001 的开发 origin。
 
-**本地限制：** Cookie 域和 trustedOrigins 尚未随环境切换。URL 环境变量主要用于应用跳转，不会自动覆盖上述认证配置。见[开发文档](DEVELOPMENT.md)。
+两端复用 [auth-runtime.ts](../packages/shared/src/auth-runtime.ts)：开发使用非 Secure 的 host-only Cookie；Vercel production 维持 Secure 共享 Cookie；Preview 使用 Secure host-only Cookie 和部署 hostname 作为 Passkey RP ID，仅支持 `VERCEL_URL` 指向的具体部署入口，分支 alias 的 Passkey 尚未实现。独立的 PWA/Editor Preview 域名不能通过 `.vercel.app` 共享 Cookie，跨应用 Preview 登录需要同一受控父域部署，不视为已实现能力。显式 localhost URL 的本地生产构建仍使用开发 Cookie。见[开发文档](DEVELOPMENT.md)。
 
-PWA 的 `trusted-url.ts` 负责登录回跳 URL 检查，当前允许相对路径、localhost、bouldering.top 及其子域名。换部署域名时必须同时检查它、两端 auth 的可信来源、Cookie 域和 Passkey RP ID，不能只换首页 URL。
+PWA 登录页在服务端使用与认证实例一致的 `trustedOrigins` 检查回跳 URL，再把结果传入登录界面，Magic Link、密码、Passkey 共用同一结果。`trusted-url.ts` 只验证同站相对路径或该名单内的 origin，拒绝反斜杠外跳、控制字符、URL 凭据和未配置子域。换部署域名时必须同时检查认证环境的可信来源、Cookie 域和 Passkey RP ID，不能只换首页 URL。
 
 ## 两层权限模型
 
 | 身份 | 来源 | 当前能力 |
 | --- | --- | --- |
-| 未登录 | 无 session | 公开浏览；PWA Beta 提交要求登录，Editor 同名提交 API 仍有差异 |
+| 未登录 | 无 session | 公开浏览；PWA/Editor Beta 提交均要求登录 |
 | 普通 user | `user.role = 'user'` | 账号与普通用户功能，默认不能进入后台 |
 | 岩场 manager | user + `crag_permissions` 记录 | 可进入后台并维护被授权岩场的信息、线路、图片和 Beta |
 | 全局 admin | `user.role = 'admin'` | 全部岩场、创建岩场、管理授权、城市/地级市和用户角色 |

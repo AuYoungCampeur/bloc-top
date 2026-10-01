@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
-import { NextRequest } from 'next/server'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { NextRequest, NextResponse } from 'next/server'
 
 vi.mock('@/lib/mongodb', () => ({ getDatabase: vi.fn() }))
 vi.mock('@/lib/require-auth', () => ({ requireAuth: vi.fn() }))
@@ -8,7 +8,20 @@ vi.mock('@/lib/logger', () => ({
 }))
 
 import { getDatabase } from '@/lib/mongodb'
-import { GET } from './route'
+import { requireAuth } from '@/lib/require-auth'
+import { GET, POST } from './route'
+
+beforeEach(() => vi.clearAllMocks())
+
+it('PWA Beta 提交入口保留登录校验，未登录不访问数据库', async () => {
+  vi.mocked(requireAuth).mockResolvedValue(NextResponse.json({ success: false, error: '未登录' }, { status: 401 }))
+  const response = await POST(new NextRequest('http://localhost:3000/api/beta', {
+    method: 'POST',
+    body: JSON.stringify({ routeId: 39, url: 'https://www.xiaohongshu.com/explore/6797869e0000000029017615' }),
+  }))
+  expect(response.status).toBe(401)
+  expect(getDatabase).not.toHaveBeenCalled()
+})
 
 describe('GET /api/beta', () => {
   it('从数据库读取 Beta 且禁止 HTTP 缓存', async () => {

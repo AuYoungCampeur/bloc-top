@@ -32,6 +32,26 @@ function buildInitialAnnotations(route: Route): RouteTopoAnnotation[] {
   return []
 }
 
+/** Persisted fields owned by this editor; Beta updates are a separate workflow. */
+function buildEditorSelection(route: Route) {
+  return {
+    id: route.id,
+    cragId: route.cragId,
+    fields: {
+      name: route.name,
+      grade: route.grade,
+      area: route.area,
+      setter: route.setter,
+      FA: route.FA,
+      description: route.description,
+    },
+    annotations: buildInitialAnnotations(route),
+  }
+}
+
+type EditorSelection = ReturnType<typeof buildEditorSelection>
+const EMPTY_TOPO_LINE: TopoPoint[] = []
+
 export function useRouteEditor({
   selectedRoute,
   faceImageCache,
@@ -42,6 +62,19 @@ export function useRouteEditor({
 }: UseRouteEditorOptions) {
   const { showToast } = useToast()
 
+  // Keep the persisted editing baseline stable when unrelated route metadata or
+  // a refetch changes the record object. Actual editable changes still rebase it.
+  const selectionKey = selectedRoute ? JSON.stringify(buildEditorSelection(selectedRoute)) : null
+  const editorSelection = useMemo<EditorSelection | null>(
+    () => selectionKey ? JSON.parse(selectionKey) as EditorSelection : null,
+    [selectionKey],
+  )
+  const currentRouteIdRef = useRef(selectedRoute?.id ?? null)
+  currentRouteIdRef.current = selectedRoute?.id ?? null
+  const currentSelectionKeyRef = useRef(selectionKey)
+  currentSelectionKeyRef.current = selectionKey
+  const savedSelectionKeyRef = useRef<string | null>(null)
+
   // Edit state
   const [editedRoute, setEditedRoute] = useState<Partial<Route>>({})
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
@@ -49,10 +82,12 @@ export function useRouteEditor({
   // Multi-annotation state（替代旧的 topoLine/topoTension/selectedFaceId）
   const [annotations, setAnnotations] = useState<RouteTopoAnnotation[]>([])
   const [activeAnnotationIndex, setActiveAnnotationIndex] = useState(0)
+  const currentDraftRef = useRef({ fields: editedRoute, annotations })
+  currentDraftRef.current = { fields: editedRoute, annotations }
 
   // Derived values from active annotation
   const activeAnnotation = annotations[activeAnnotationIndex] ?? null
-  const topoLine = activeAnnotation?.topoLine ?? []
+  const topoLine = activeAnnotation?.topoLine ?? EMPTY_TOPO_LINE
   const topoTension = activeAnnotation?.topoTension ?? 0
   const selectedFaceId = activeAnnotation?.faceId ?? null
 
@@ -66,6 +101,7 @@ export function useRouteEditor({
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saveSuccess, setSaveSuccess] = useState(false)
+  const savingRef = useRef(false)
 
   // Delete state
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -75,24 +111,24 @@ export function useRouteEditor({
   const [isFullscreenEdit, setIsFullscreenEdit] = useState(false)
   const [showOtherRoutes, setShowOtherRoutes] = useState(true)
 
-  const justSavedRef = useRef(false)
   const topoSnapshotRef = useRef<{ annotations: RouteTopoAnnotation[]; index: number } | null>(null)
 
   // Dirty check：比较当前 annotations 与路由原始数据
   const hasUnsavedChanges = useCallback((): boolean => {
-    if (!selectedRoute) return false
+    if (!editorSelection) return false
 
     // 字段变更
     const fields = ['name', 'grade', 'area', 'FA', 'setter', 'description'] as const
     for (const field of fields) {
-      if ((editedRoute[field] ?? '') !== (selectedRoute[field] ?? '')) return true
+      if ((editedRoute[field] ?? '') !== (editorSelection.fields[field] ?? '')) return true
     }
 
     // annotations 变更：与原始数据对比
-    const original = buildInitialAnnotations(selectedRoute)
+    const original = editorSelection.annotations
     if (annotations.length !== original.length) return true
     for (let i = 0; i < annotations.length; i++) {
       if (annotations[i].faceId !== original[i].faceId) return true
+      if (annotations[i].area !== original[i].area) return true
       const aLine = annotations[i].topoLine
       const oLine = original[i].topoLine
       if (aLine.length !== oLine.length) return true
@@ -103,35 +139,20 @@ export function useRouteEditor({
     }
 
     return false
-  }, [selectedRoute, editedRoute, annotations])
+  }, [editorSelection, editedRoute, annotations])
 
-  // Initialize edit state when route is selected
-  useEffect(() => {
-    if (!selectedRoute) return
-
-    setEditedRoute({
-      name: selectedRoute.name,
-      grade: selectedRoute.grade,
-      area: selectedRoute.area,
-      setter: selectedRoute.setter,
-      FA: selectedRoute.FA,
-      description: selectedRoute.description,
-    })
+  const loadPersistedDraft = useCallback((selection: EditorSelection) => {
+    setEditedRoute(selection.fields)
     setFormErrors({})
 
-    const initialAnnotations = buildInitialAnnotations(selectedRoute)
+    const initialAnnotations = selection.annotations
     setAnnotations(initialAnnotations)
     setActiveAnnotationIndex(0)
-
-    if (justSavedRef.current) {
-      justSavedRef.current = false
-      return
-    }
 
     const firstAnnotation = initialAnnotations[0] ?? null
     if (firstAnnotation) {
       const url = faceImageCache.getImageUrl({
-        cragId: selectedRoute.cragId,
+        cragId: selection.cragId,
         area: firstAnnotation.area,
         faceId: firstAnnotation.faceId,
       })
@@ -146,7 +167,19 @@ export function useRouteEditor({
       setImageUrl(null)
       setImageLoadError(false)
     }
-  }, [selectedRoute, faceImageCache])
+  }, [faceImageCache])
+
+  // Initialize on selection or persisted editable changes, preserving Beta-only edits.
+  useEffect(() => {
+    // The save handler already reconciles this exact server response with any
+    // edits made while awaiting it. Updating the baseline must not reset them.
+    if (selectionKey === savedSelectionKeyRef.current) {
+      savedSelectionKeyRef.current = null
+      return
+    }
+    savedSelectionKeyRef.current = null
+    if (editorSelection) loadPersistedDraft(editorSelection)
+  }, [editorSelection, loadPersistedDraft, selectionKey])
 
   // Annotation management
   const addAnnotation = useCallback((faceId: string, area: string) => {
@@ -226,7 +259,7 @@ export function useRouteEditor({
 
   // Save
   const handleSave = useCallback(async (): Promise<boolean> => {
-    if (!selectedRoute) return false
+    if (!selectedRoute || savingRef.current) return false
 
     const errors = validateRouteForm({ name: editedRoute.name || '', area: editedRoute.area || '' })
     if (Object.keys(errors).length > 0) {
@@ -235,6 +268,8 @@ export function useRouteEditor({
     }
     setFormErrors({})
 
+    const submittedDraftKey = JSON.stringify({ fields: editedRoute, annotations })
+    savingRef.current = true
     setIsSaving(true)
     setSaveError(null)
     setSaveSuccess(false)
@@ -259,10 +294,22 @@ export function useRouteEditor({
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || '保存失败')
 
-      setSaveSuccess(true)
-      justSavedRef.current = true
-
-      setRoutes((prev) => prev.map((r) => (r.id === selectedRoute.id ? data.route : r)))
+      const isCurrentSelection = currentRouteIdRef.current === selectedRoute.id
+      const hasNewChanges = isCurrentSelection && JSON.stringify(currentDraftRef.current) !== submittedDraftKey
+      if (isCurrentSelection) {
+        const savedSelection = buildEditorSelection(data.route)
+        const savedKey = JSON.stringify(savedSelection)
+        if (savedKey !== currentSelectionKeyRef.current) savedSelectionKeyRef.current = savedKey
+        // Adopt normalization only if the user has not continued editing. The
+        // current draft otherwise remains intact against the new server baseline.
+        if (!hasNewChanges) loadPersistedDraft(savedSelection)
+        setSaveSuccess(!hasNewChanges)
+      }
+      // Route PATCH owns the form and Topo fields. Beta mutations may have
+      // completed while this request was in flight and must keep their result.
+      setRoutes((prev) => prev.map((r) => r.id === selectedRoute.id
+        ? { ...data.route, betaLinks: r.betaLinks }
+        : r))
 
       const savedArea = editedRoute.area?.trim()
       if (savedArea && selectedCragId && !persistedAreas.includes(savedArea)) {
@@ -270,18 +317,24 @@ export function useRouteEditor({
         updateCragAreas(selectedCragId, merged).catch(() => {})
       }
 
-      showToast('线路信息保存成功！', 'success', 3000)
+      showToast(
+        hasNewChanges ? '已保存提交内容，后续修改尚未保存' : '线路信息保存成功！',
+        hasNewChanges ? 'info' : 'success',
+        hasNewChanges ? 4000 : 3000,
+      )
       setTimeout(() => setSaveSuccess(false), 2000)
-      return true
+      // Save-and-switch must stay on this route if the latest draft was not sent.
+      return !hasNewChanges
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : '保存失败'
       setSaveError(errorMsg)
       showToast(errorMsg, 'error', 4000)
       return false
     } finally {
+      savingRef.current = false
       setIsSaving(false)
     }
-  }, [selectedRoute, editedRoute, annotations, setRoutes, showToast, persistedAreas, selectedCragId, updateCragAreas])
+  }, [selectedRoute, editedRoute, annotations, setRoutes, showToast, persistedAreas, selectedCragId, updateCragAreas, loadPersistedDraft])
 
   // Delete
   const handleDeleteRoute = useCallback(async () => {

@@ -11,8 +11,8 @@
     "typecheck": "turbo run typecheck"
   },
   "lint-staged": {
-    "apps/pwa/**/*.{ts,tsx}": "eslint -c apps/pwa/eslint.config.mjs",
-    "apps/pwa/**/*.{js,mjs}": "eslint -c apps/pwa/eslint.config.mjs"
+    "apps/editor/**/*.{ts,tsx,js,mjs}": "pnpm --dir apps/editor exec eslint",
+    "apps/pwa/**/*.{ts,tsx,js,mjs}": "pnpm --dir apps/pwa exec eslint"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

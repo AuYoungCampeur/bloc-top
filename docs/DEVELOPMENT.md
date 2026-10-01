@@ -1,6 +1,6 @@
 # 开发、验证与部署
 
-> 核对日期：2026-09-20。命令依据仓库 scripts；线上环境未核实。
+> 开发环境与命令于 2026-10-02 更新。逐次验证范围见 [产品迭代记录](PRODUCT.md)，不以构建通过代替真实服务验收。
 
 ## 1. 环境准备
 
@@ -26,7 +26,7 @@ cp -n apps/editor/.env.example apps/editor/.env.local
 | `RESEND_API_KEY` | 认证初始化/邮件需要 | 不使用 | PWA 创建 Resend 实例并发送 Magic Link |
 | `RESEND_FROM_EMAIL` | 邮件配置 | 不使用 | 缺省使用代码中的 Resend 测试发件人；实际可投递性需验证 |
 | `NEXT_PUBLIC_EDITOR_URL` | 后台入口 | 不需要 | 本地填 `http://localhost:3001` |
-| `NEXT_PUBLIC_PWA_URL` | 不需要 | 必需 | 登录跳转和缓存 webhook；本地填 `http://localhost:3000` |
+| `NEXT_PUBLIC_PWA_URL` | 本地生产预览建议 | 必需 | PWA 认证 origin、Editor 登录跳转和缓存 webhook；本地填 `http://localhost:3000` |
 | `NEXT_PUBLIC_APP_URL` | 当前源码未直接使用 | 回跳到后台 | Editor 本地填 `http://localhost:3001`；不是 better-auth baseURL 的自动配置 |
 | `REVALIDATE_SECRET` | webhook 接收 | webhook 发送 | 两端一致；不带 NEXT_PUBLIC 前缀 |
 | `NEXT_PUBLIC_AMAP_KEY` | 地图、定位、天气 | 不使用 | 地图 JS 与服务端高德请求共用当前配置 |
@@ -34,11 +34,11 @@ cp -n apps/editor/.env.example apps/editor/.env.local
 | `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | 同上 | 图片管理必需 | 服务端凭据 |
 | `R2_BUCKET_NAME` | 同上 | 图片管理必需 | 无代码默认值；隔离开发 bucket 的图片域名也需配套检查 |
 
-`NEXT_PUBLIC_*` 会进入客户端构建，不能用于数据库、R2 或签名密钥。新增变量还要检查根目录 `turbo.json` 的 `globalEnv`；目前维护横幅另读取 `NEXT_PUBLIC_MAINTENANCE_MODE`，但该变量未列入 Turbo 的 globalEnv，不应假定通过根命令已透传。
+`NEXT_PUBLIC_*` 会进入客户端构建，不能用于数据库、R2 或签名密钥。新增变量还要检查根目录 `turbo.json` 的 `globalEnv`；认证环境判定的 `VERCEL_ENV` / `VERCEL_URL` 和维护横幅的 `NEXT_PUBLIC_MAINTENANCE_MODE` 已列入透传配置。
 
 图片公开域名目前在共享 constants、Next images 配置和 PWA SW/CSP 中写为 `img.bouldering.top`，不是一个可直接通过 `.env` 切换的配置项。
 
-## 3. 启动与当前阻碍
+## 3. 启动与认证环境
 
 ```bash
 pnpm dev
@@ -49,19 +49,20 @@ pnpm --filter @bloctop/editor dev
 
 PWA 默认 3000，Editor 开发脚本固定 3001。后台首次访问会重定向到 PWA 登录；只有 admin 或有岩场授权的用户能进入。只启动后台不能完成首次登录。
 
-当前两端 `src/lib/auth.ts`：
+两端 `src/lib/auth.ts` 复用 shared `auth-runtime` 配置（2026-10-02）：
 
-- `crossSubDomainCookies` 无条件启用，domain 固定为 `.bouldering.top`。
-- `trustedOrigins` 只有生产域名。
-- 仅 Passkey RP ID/origin 做了开发环境分支。
+- 开发：host-only、非 Secure Cookie，共同信任 `http://localhost:3000` 和 `http://localhost:3001`，RP ID 为 `localhost`。两端请使用同一 hostname，不混用 localhost 与 127.0.0.1。
+- Vercel production：Secure Cookie，域 `.bouldering.top`，信任明确生产 origins，RP ID `bouldering.top`；配置地址必须使用 HTTPS。
+- Vercel Preview：Secure host-only Cookie，使用 `VERCEL_URL` 的 origin/RP ID，不向 `.vercel.app` 扩大 Cookie 共享。独立 Preview 的跨应用登录尚未建立。
+- 本地 `next start`：若明确配置的应用 URL 均为 localhost 且不是 Vercel 部署，使用开发 Cookie，便于验证生产构建。
 
-因此 localhost 登录是优先恢复项。本轮仅补齐环境说明，不绕过鉴权、不改 auth 源码。后续需要让开发环境使用合适的 Cookie 域/host-only Cookie 和 localhost origins，再验证双端登录。修改前不要将服务启动成功等同于后台可使用。
+认证配置有 Cookie 属性测试和实际 better-auth + 隔离内存 adapter 的登录/跨端 session/退出集成测试。真实 Magic Link 投递、已有账号登录、Passkey 设备及后台权限仍需使用隔离开发环境验收，不能用配置测试替代。
 
 ## 4. 检查命令与实际覆盖
 
 | 命令 | 范围 |
 | --- | --- |
-| `pnpm typecheck` | 四个包的 `tsc --noEmit`，由 Turbo 调度，可能命中缓存 |
+| `pnpm typecheck` | 应用先 `next typegen` 更新路由类型，再执行四个包的 `tsc --noEmit`；由 Turbo 调度，可能命中缓存 |
 | `pnpm lint` | 定义了 lint 的 PWA 与 Editor；共享包没有独立 lint script |
 | `pnpm test` / `pnpm test:run` | PWA、Editor、shared 的 Vitest；ui 没有独立 test script |
 | `pnpm --filter @bloctop/editor test:run` | 后台组件、hook、逻辑测试 |
@@ -71,11 +72,11 @@ PWA 默认 3000，Editor 开发脚本固定 3001。后台首次访问会重定�
 
 Vitest 单元/组件测试使用 `*.test.ts(x)`，Playwright 组件测试使用 `*.ct.tsx`。Editor/PWA 声明 Vitest 4，shared 声明 Vitest 3，修改配置时注意包间差异。
 
-本轮验证结果见[后台接手指南](ADMIN.md)：后台 139 项测试通过，全仓类型检查通过（3 个任务使用缓存）。本次未执行全量 lint、全量测试、Playwright、生产构建或真实服务验收。
+2026-10-02 工作区全量 lint、类型检查、Vitest、Playwright 组件测试和双应用生产构建均通过；lint 有既有警告。工作区包含未集成的新建岩场页面与测试，不能将这些检查当作已提交版本或真实生产流程的验收。干净版本验证和发布结果另记于[产品迭代记录](PRODUCT.md)。
 
 Git hooks 实际行为：
 
-- `.husky/pre-commit` 执行 `lint-staged`；根配置目前只匹配 **PWA** 文件，不覆盖 Editor。
+- `.husky/pre-commit` 执行 `lint-staged`；根配置匹配 PWA 和 Editor 文件。共享包仍需运行整包检查。
 - `.husky/pre-push` 执行类型检查、Vitest、Playwright，没有单独执行 ESLint。
 - 不要用「push 成功」替代后台 lint。也不要直接运行 pre-push 来做普通检查，它会暂存工作区改动。
 
@@ -111,8 +112,8 @@ pnpm --filter @bloctop/editor exec next start -p 3001
 | 现象 | 先检查 |
 | --- | --- |
 | 页面报缺少 MongoDB 配置 | 两个应用目录内的 env 文件，URI 与 DB_NAME 是否同时存在 |
-| localhost 登录后仍跳回登录 | Cookie 域、trustedOrigins、两端 secret/数据库；见上方当前阻碍 |
+| localhost 登录后仍跳回登录 | 两端 hostname、secret/数据库、应用 URL、Cookie 与权限；见上方认证环境 |
 | 登录成功但看不到岩场 | admin/user 角色、crag_permissions、Editor 列表过滤；不要只看 createdBy |
 | 后台保存后 PWA 数据没变 | DB 是否写入、webhook env/日志、具体失效路径、浏览器和 SW 缓存 |
-| 大图上传或干净安装失败 | Editor 未声明 browser-image-compression、R2 权限、图片域名配置 |
+| 大图上传或干净安装失败 | browser-image-compression 安装情况、R2 权限、图片域名配置 |
 | 删除页面后 tsc 引用旧页面 | 应用 `.next/types` 的生成缓存；确认不再运行开发服务后按需清理对应缓存 |

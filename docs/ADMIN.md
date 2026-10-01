@@ -83,7 +83,7 @@
 | `/api/routes/[id]` | GET / PATCH / DELETE | 公开读取 / 编辑和删除需对应岩场权限 |
 | `/api/faces` | GET/PATCH/DELETE | 均需登录及对应岩场编辑权限 |
 | `/api/upload` | POST | 登录及对应岩场编辑权限 |
-| `/api/beta` | GET / POST / PATCH / DELETE | 公开读取；**Editor POST 当前仅限流，无登录校验**；修改/删除需岩场编辑权限 |
+| `/api/beta` | GET / POST / PATCH / DELETE | 公开读取；两端 POST 均要求登录和限流；修改/删除需岩场编辑权限 |
 | `/api/crag-permissions` | GET/POST/DELETE | admin 管理岩场授权 |
 | `/api/cities`、`/api/prefectures` | GET / POST | 公开读取 / admin 创建 |
 | `/api/cities/[id]`、`/api/prefectures/[id]` | PATCH/DELETE | admin |
@@ -94,14 +94,14 @@
 
 | 顺序 | 已观察到的事实 | 后续工作与验收目标 |
 | --- | --- | --- |
-| 1 | 两端 `src/lib/auth.ts` 无条件写死 `.bouldering.top` Cookie 域、生产 trustedOrigins | 区分开发/生产认证设置；验证 localhost 登录 → Editor → 刷新 → 退出完整流程 |
+| 1 | 2026-10-02 共用环境认证配置，localhost Cookie/session 隔离存储集成测试通过 | 仍需验收真实邮箱、Passkey 设备和后台权限；独立 Preview 跨域登录及 alias Passkey 未完成 |
 | 2 | 两端 `api/faces/route.ts` 改名/删除只更新顶层 `faceId`/`topoLine`，匹配也没有 `area`；上传的清标注逻辑仍使用旧字段 | 同步处理 `topoAnnotations` 与旧字段；用同岩场不同区域同名岩面、多视角线路验证不串改、不留失效引用 |
-| 3 | PWA `api/beta/route.ts` POST 已有 requireAuth，Editor 同名 POST 没有 | 统一两个入口的提交政策与认证测试，避免只修用户端 |
+| 3 | 2026-10-02 两端复用 shared `createBetaHandlers`，提交认证、原子去重和缺失记录处理已统一 | 保留业务回归，后续完善发布通知与完整用户提交验收 |
 | 4 | `revalidate-pwa.ts` 只记录失败，多处调用没有等待；Beta/上传没有完整刷新通知；共享 `revalidate-helpers.ts` 不包含线路列表 | 梳理每个写入对应哪些缓存；验证后台保存后 PWA 新请求与已打开页面的可见性 |
-| 5 | Editor `use-face-upload.ts` 动态导入 `browser-image-compression`，但 Editor 的 package.json 未声明；该依赖目前只在 PWA 声明 | 补齐包边界并在干净安装环境验证大于 5 MB 图片上传 |
+| 5 | Editor 已声明 `browser-image-compression`，根 frozen install 可恢复工作区依赖链接 | 仍需在隔离 bucket 验收大于 5 MB 图片上传和压缩失败恢复 |
 | 6 | `permissions.ts` 的 createdBy 回退查询使用 `{ id: cragId }`，而 DB 使用 `_id`；后台入口与列表仅看授权记录 | 明确 createdBy 回退是否仍需要，使编辑/入口/列表的权限语义一致 |
 | 7 | `migrate-crag-ownership.ts` 仍写入 `role: 'creator'`，当前类型只接受 manager | 先核实实际数据与迁移意图，再修订脚本；不要直接运行旧迁移 |
-| 8 | 多图状态的 dirty check 比较 faceId、点和张力，但未比较 annotation.area；旧字段没有独立的图片区域字段 | 补充跨区域标注、切换与放弃编辑测试，确定旧消费路径的兼容方式 |
+| 8 | 多图 dirty check 已包含 area，Beta 独立更新保留 Topo 草稿，保存采用服务端基线 | 继续验证慢保存/并发操作；旧字段缺独立图片区域的问题需随引用一致性处理 |
 
 源码入口：[权限函数](../packages/shared/src/permissions.ts)、[岩面 API](../apps/editor/src/app/api/faces/route.ts)、[上传 API](../apps/editor/src/app/api/upload/route.ts)、[后台 Beta API](../apps/editor/src/app/api/beta/route.ts)、[PWA Beta API](../apps/pwa/src/app/api/beta/route.ts)、[旧授权迁移脚本](../apps/pwa/scripts/migrate-crag-ownership.ts)。
 
