@@ -40,7 +40,7 @@ docs/                  当前项目文档与保留的 iOS 历史 PRD
 ## 本地准备
 
 ```bash
-nvm use                         # .nvmrc 为 Node 20
+nvm use                         # .nvmrc 为 Node 22
 corepack enable
 pnpm install --frozen-lockfile
 
@@ -52,7 +52,7 @@ cp -n apps/editor/.env.example apps/editor/.env.local
 pnpm dev                        # 同时启动 PWA:3000 与 Editor:3001
 ```
 
-**当前启动限制：** 两端认证配置无条件使用 `.bouldering.top` Cookie 域，且可信来源列表写死了生产域名。因此这些命令说明如何启动服务，不能保证 localhost 登录闭环成功；只改 `.env.local` 不能解决该问题，详见[开发文档](docs/DEVELOPMENT.md)。
+两端通过共享认证配置区分 localhost、生产与 Vercel Preview。localhost 使用 host-only Cookie，两端需连接同一隔离开发库并使用相同签名密钥；生产维持 `.bouldering.top` 共享 Cookie。配置与验证边界详见[开发文档](docs/DEVELOPMENT.md)。
 
 不要为重新熟悉项目直接执行 `db:seed`：该脚本会清空目标数据库的岩场和线路集合。
 
@@ -78,3 +78,5 @@ pnpm build                             # 两个应用的生产构建
 - 基于岩场 → 岩面 → 线路/Topo → Beta 的实际管理流程，再安排后台体验改进。
 
 具体代码证据、当前未提交内容和验收清单见[后台接手指南](docs/ADMIN.md)。
+
+2026-10-02 起按[产品迭代与验收](docs/PRODUCT.md)持续推进 UI、后端与工程基础。该文档记录成熟度要求和当前优先级；项目尚未完成完整成熟度验收。

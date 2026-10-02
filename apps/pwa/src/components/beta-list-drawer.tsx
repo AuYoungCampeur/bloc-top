@@ -31,6 +31,8 @@ export function BetaListDrawer({
   const t = useTranslations('Beta')
   const tCommon = useTranslations('Common')
   const [refreshing, setRefreshing] = useState(false)
+  const [failedRouteId, setFailedRouteId] = useState<number | null>(null)
+  const refreshFailed = failedRouteId === routeId
   const betaLinks = propsBetaLinks
 
   /**
@@ -42,9 +44,10 @@ export function BetaListDrawer({
 
     setRefreshing(true)
     try {
-      await onRefresh()
+      const success = await onRefresh()
+      setFailedRouteId(success ? null : routeId)
     } catch {
-      // Silent fail — user sees stale data, can retry
+      setFailedRouteId(routeId)
     } finally {
       setRefreshing(false)
     }
@@ -56,9 +59,7 @@ export function BetaListDrawer({
   /**
    * 复制链接到剪贴板
    */
-  const handleCopyLink = useCallback(async (url: string, betaId: string, e: React.MouseEvent) => {
-    e.stopPropagation() // 阻止触发父元素的点击事件
-
+  const handleCopyLink = useCallback(async (url: string, betaId: string) => {
     try {
       await navigator.clipboard.writeText(url)
       setCopiedId(betaId)
@@ -79,20 +80,6 @@ export function BetaListDrawer({
       setTimeout(() => setCopiedId(null), 2000)
     }
   }, [])
-
-  /**
-   * 打开外部链接
-   */
-  const handleLinkClick = (url: string) => {
-    // 创建临时 <a> 标签并模拟点击
-    const link = document.createElement('a')
-    link.href = url
-    link.target = '_blank'
-    link.rel = 'noopener noreferrer'
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-  }
 
   return (
     <Drawer
@@ -132,9 +119,15 @@ export function BetaListDrawer({
             style={{ color: 'var(--theme-on-surface-variant)', borderRadius: 'var(--theme-radius-lg)' }}
           >
             <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-            {refreshing ? tCommon('refreshing') : tCommon('refresh')}
+            {refreshing ? tCommon('refreshing') : refreshFailed ? tCommon('retry') : tCommon('refresh')}
           </button>
         </div>
+
+        {refreshFailed && (
+          <p role="alert" className="text-sm mb-3" style={{ color: 'var(--theme-error)' }}>
+            {t('refreshFailed')}
+          </p>
+        )}
 
         {betaLinks.length === 0 ? (
           <div className="text-center py-8">
@@ -164,82 +157,89 @@ export function BetaListDrawer({
             <div className="space-y-2">
               {betaLinks.map((beta, index) => {
               return (
-                <button
+                <div
                   key={beta.id}
-                  onClick={() => handleLinkClick(beta.url)}
-                  className="w-full flex items-center gap-3 p-3 transition-all active:scale-[0.98] animate-fade-in-up glass"
+                  className="w-full flex items-center gap-3 p-3 animate-fade-in-up glass"
                   style={{
                     borderRadius: 'var(--theme-radius-xl)',
                     animationDelay: `${index * 50}ms`,
                   }}
                 >
-                  {/* Beta 视频图标 */}
-                  <div
-                    className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
-                    style={{ backgroundColor: 'color-mix(in srgb, var(--theme-primary) 15%, var(--theme-surface))' }}
+                  <a
+                    href={beta.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex flex-1 min-w-0 items-center gap-3 transition-transform active:scale-[0.98]"
                   >
-                    <BetaIcon className="w-5 h-5" style={{ color: 'var(--theme-primary)' }} />
-                  </div>
-
-                  {/* 链接信息 */}
-                  <div className="flex-1 min-w-0 text-left">
-                    <span
-                      className="text-sm font-medium block truncate"
-                      style={{ color: 'var(--theme-on-surface)' }}
+                    {/* Beta 视频图标 */}
+                    <div
+                      className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
+                      style={{ backgroundColor: 'color-mix(in srgb, var(--theme-primary) 15%, var(--theme-surface))' }}
                     >
-                      {beta.title || (beta.author ? `@${beta.author}` : `Beta #${index + 1}`)}
-                    </span>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {beta.author && beta.title && (
-                        <span
-                          className="text-xs"
-                          style={{ color: 'var(--theme-on-surface-variant)' }}
-                        >
-                          @{beta.author}
-                        </span>
-                      )}
-                      {/* 身高臂长标签 */}
-                      {(beta.climberHeight || beta.climberReach) && (
-                        <span className="flex items-center gap-1.5">
-                          {beta.climberHeight && (
-                            <span
-                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[11px] font-medium"
-                              style={{
-                                backgroundColor: 'color-mix(in srgb, var(--theme-primary) 12%, transparent)',
-                                color: 'var(--theme-primary)',
-                                borderRadius: 'var(--theme-radius-sm)',
-                              }}
-                            >
-                              <Ruler className="w-3 h-3" />
-                              {t('height')} {beta.climberHeight}cm
-                            </span>
-                          )}
-                          {beta.climberReach && (
-                            <span
-                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[11px] font-medium"
-                              style={{
-                                backgroundColor: 'color-mix(in srgb, var(--theme-success) 12%, transparent)',
-                                color: 'var(--theme-success)',
-                                borderRadius: 'var(--theme-radius-sm)',
-                              }}
-                            >
-                              <MoveHorizontal className="w-3 h-3" />
-                              {t('reach')} {beta.climberReach}cm
-                            </span>
-                          )}
-                        </span>
-                      )}
+                      <BetaIcon className="w-5 h-5" style={{ color: 'var(--theme-primary)' }} />
                     </div>
-                  </div>
+
+                    {/* 链接信息 */}
+                    <div className="flex-1 min-w-0 text-left">
+                      <span
+                        className="text-sm font-medium block truncate"
+                        style={{ color: 'var(--theme-on-surface)' }}
+                      >
+                        {beta.title || (beta.author ? `@${beta.author}` : `Beta #${index + 1}`)}
+                      </span>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {beta.author && beta.title && (
+                          <span
+                            className="text-xs"
+                            style={{ color: 'var(--theme-on-surface-variant)' }}
+                          >
+                            @{beta.author}
+                          </span>
+                        )}
+                        {/* 身高臂长标签 */}
+                        {(beta.climberHeight || beta.climberReach) && (
+                          <span className="flex items-center gap-1.5">
+                            {beta.climberHeight && (
+                              <span
+                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[11px] font-medium"
+                                style={{
+                                  backgroundColor: 'color-mix(in srgb, var(--theme-primary) 12%, transparent)',
+                                  color: 'var(--theme-primary)',
+                                  borderRadius: 'var(--theme-radius-sm)',
+                                }}
+                              >
+                                <Ruler className="w-3 h-3" />
+                                {t('height')} {beta.climberHeight}cm
+                              </span>
+                            )}
+                            {beta.climberReach && (
+                              <span
+                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[11px] font-medium"
+                                style={{
+                                  backgroundColor: 'color-mix(in srgb, var(--theme-success) 12%, transparent)',
+                                  color: 'var(--theme-success)',
+                                  borderRadius: 'var(--theme-radius-sm)',
+                                }}
+                              >
+                                <MoveHorizontal className="w-3 h-3" />
+                                {t('reach')} {beta.climberReach}cm
+                              </span>
+                            )}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </a>
 
                   {/* 复制链接按钮 */}
                   <button
-                    onClick={(e) => handleCopyLink(beta.url, beta.id, e)}
+                    onClick={() => handleCopyLink(beta.url, beta.id)}
                     className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 transition-all active:scale-95 ${copiedId !== beta.id ? 'glass-light' : ''}`}
                     style={{
                       ...(copiedId === beta.id ? { backgroundColor: 'var(--theme-success, #22c55e)' } : {}),
                     }}
                     title={tCommon('copyLink')}
+                    aria-label={tCommon('copyLink')}
                   >
                     {copiedId === beta.id ? (
                       <Check className="w-5 h-5 text-white" />
@@ -250,7 +250,7 @@ export function BetaListDrawer({
                       />
                     )}
                   </button>
-                </button>
+                </div>
               )
             })}
             </div>

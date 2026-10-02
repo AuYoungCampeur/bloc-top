@@ -155,8 +155,8 @@ export const HTML_CACHE = {
  * 注意: 与 API_CACHE 不同，这是 SW 运行时缓存配置
  */
 export const SW_API_CACHE = {
-  /** 缓存名称 */
-  CACHE_NAME: 'api-data',
+  /** 仅存储明确公开接口；旧 api-data/Serwist apis 在 SW 激活时清理 */
+  CACHE_NAME: 'public-api-v1',
   /** 最大缓存条目数 */
   MAX_ENTRIES: 100,
   /** 缓存过期时间 (秒) - 1 天 */

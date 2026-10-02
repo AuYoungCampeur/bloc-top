@@ -20,13 +20,14 @@ export const revalidate = 86400 // 1 天 (秒)
  * - type: 'prefecture' → 地级市下所有区/县岩场（聚合）
  */
 export default async function HomePage() {
+  // Read request state before database access so prerendering does not query it.
+  const cookieStore = await cookies()
   const [cities, prefectures] = await Promise.all([
     getAllCities(),
     getAllPrefectures(),
   ])
 
   // 解析 cookie 中的选择（兼容旧格式纯字符串）
-  const cookieStore = await cookies()
   const rawCity = cookieStore.get(CITY_COOKIE_NAME)?.value
   let selection = parseCitySelection(rawCity)
 

@@ -307,6 +307,7 @@
     "noBeta": "No beta videos yet",
     "beFirst": "Be the first to share a beta!",
     "refreshed": "Refreshed",
+    "refreshFailed": "Refresh failed. This list may be out of date. Please retry.",
     "fromCache": "From cache",
     "videoCount": "{count, plural, =1 {# video} other {# videos}}",
     "noVideo": "No videos",

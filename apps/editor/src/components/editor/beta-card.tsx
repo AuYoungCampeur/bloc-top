@@ -34,6 +34,7 @@ export interface BetaCardProps {
   onDelete: () => void
   isSaving: boolean
   isDeleting: boolean
+  editDisabled?: boolean
 }
 
 export function BetaCard({
@@ -47,6 +48,7 @@ export function BetaCard({
   onDelete,
   isSaving,
   isDeleting,
+  editDisabled = false,
 }: BetaCardProps) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const platformInfo = BETA_PLATFORMS[beta.platform]
@@ -78,9 +80,11 @@ export function BetaCard({
           <div className="flex items-center gap-1 flex-shrink-0">
             <button
               onClick={onStartEdit}
-              className="p-1.5 rounded-lg transition-all duration-200 active:scale-95"
+              disabled={editDisabled}
+              className="p-1.5 rounded-lg transition-all duration-200 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
               style={{ color: 'var(--theme-primary)' }}
-              title="编辑"
+              aria-label="编辑"
+              title={editDisabled ? '请先保存或取消当前 Beta 编辑' : '编辑'}
             >
               <Pencil className="w-4 h-4" />
             </button>

@@ -1,7 +1,8 @@
 import { defaultCache } from "@serwist/next/worker";
 import type { PrecacheEntry, SerwistGlobalConfig, RuntimeCaching } from "serwist";
-import { Serwist, CacheFirst, NetworkFirst, ExpirationPlugin, Strategy, type StrategyHandler } from "serwist";
+import { Serwist, CacheFirst, NetworkFirst, NetworkOnly, ExpirationPlugin, Strategy, type StrategyHandler } from "serwist";
 import { SW_CACHE, OFFLINE_CACHE, HTML_CACHE, SW_API_CACHE } from "@/lib/cache-config";
+import { cleanupLegacyApiCaches, getApiCachePolicy, isCacheablePublicApiResponse } from "@/lib/sw-cache-policy";
 
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
@@ -124,14 +125,16 @@ const htmlCache: RuntimeCaching = {
   }),
 };
 
-// API 数据缓存策略 - NetworkFirst (确保数据新鲜)
+// 只有明确公开的 GET 接口允许离线回退。
 const apiCache: RuntimeCaching = {
-  // Beta 在提交后必须立即可见，不走离线 API 缓存。
-  matcher: ({ url }) => url.pathname.startsWith("/api/") && url.pathname !== "/api/beta",
+  matcher: (context) => getApiCachePolicy(context) === "public",
   handler: new NetworkFirst({
     cacheName: SW_API_CACHE.CACHE_NAME,
     networkTimeoutSeconds: SW_API_CACHE.NETWORK_TIMEOUT,
     plugins: [
+      {
+        cacheWillUpdate: async ({ response }) => isCacheablePublicApiResponse(response) ? response : null,
+      },
       new ExpirationPlugin({
         maxEntries: SW_API_CACHE.MAX_ENTRIES,
         maxAgeSeconds: SW_API_CACHE.MAX_AGE_SECONDS,
@@ -141,16 +144,23 @@ const apiCache: RuntimeCaching = {
   }),
 };
 
+// 排在 HTML 和 defaultCache 前，防止私有 API、Beta 或新增 API 落入宽泛规则。
+const networkOnlyApi: RuntimeCaching = {
+  matcher: ({ url }) => url.pathname === "/api" || url.pathname.startsWith("/api/"),
+  handler: new NetworkOnly({ fetchOptions: { cache: "no-store" } }),
+};
+
 const serwist = new Serwist({
   precacheEntries: self.__SW_MANIFEST,
   skipWaiting: true,
   clientsClaim: true,
   navigationPreload: true,
   // 顺序重要：
-  // 1. htmlCache/apiCache 优先匹配页面和 API
-  // 2. r2ImageCache/nextImageCache 处理图片
-  // 3. defaultCache 处理其他资源
-  runtimeCaching: [htmlCache, apiCache, r2ImageCache, nextImageCache, ...defaultCache],
+  // 1. API allowlist 和 NetworkOnly 拦截先于其他规则
+  // 2. htmlCache 处理页面
+  // 3. r2ImageCache/nextImageCache 处理图片
+  // 4. defaultCache 处理其他资源
+  runtimeCaching: [apiCache, networkOnlyApi, htmlCache, r2ImageCache, nextImageCache, ...defaultCache],
   // 离线 fallback 配置 - 当导航失败时显示对应语言的离线页面
   fallbacks: {
     entries: [
@@ -184,6 +194,10 @@ const serwist = new Serwist({
       },
     ],
   },
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(cleanupLegacyApiCaches(caches, SW_API_CACHE.CACHE_NAME, self.location.origin));
 });
 
 serwist.addEventListeners();

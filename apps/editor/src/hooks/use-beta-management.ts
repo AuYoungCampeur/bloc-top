@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import type { Route, BetaLink } from '@bloctop/shared/types'
 import { useToast } from '@bloctop/ui/components/toast'
 import type { BetaEditForm } from '@/components/editor/beta-card'
@@ -22,70 +22,108 @@ export function useBetaManagement({ setRoutes }: UseBetaManagementOptions) {
   })
   const [isSaving, setIsSaving] = useState(false)
   const [deletingBetaId, setDeletingBetaId] = useState<string | null>(null)
+  const editSessionRef = useRef(0)
+  const currentEditRef = useRef({ editingBetaId, editForm })
+  currentEditRef.current = { editingBetaId, editForm }
+  const savingRef = useRef(false)
 
-  const updateRouteAndSelected = useCallback(
+  const updateRoute = useCallback(
     (
       routeId: number,
       transform: (r: Route) => Route,
-      setSelectedRoute: React.Dispatch<React.SetStateAction<Route | null>>,
     ) => {
       setRoutes(prev => prev.map(r => r.id === routeId ? transform(r) : r))
-      setSelectedRoute(prev => prev && prev.id === routeId ? transform(prev) : prev)
     },
     [setRoutes],
   )
 
+  const handleBetaAdded = useCallback((routeId: number, beta: BetaLink) => {
+    updateRoute(routeId, route => ({
+      ...route,
+      betaLinks: [...(route.betaLinks ?? []).filter(existing => existing.id !== beta.id), beta],
+    }))
+  }, [updateRoute])
+
   const handleStartEdit = useCallback((beta: BetaLink) => {
-    setEditingBetaId(beta.id)
-    setEditForm({
+    if (currentEditRef.current.editingBetaId !== null) {
+      showToast('请先保存或取消当前 Beta 编辑', 'info', 3000)
+      return false
+    }
+    editSessionRef.current += 1
+    const form = {
       title: beta.title || '',
       author: beta.author || '',
       climberHeight: beta.climberHeight ? String(beta.climberHeight) : '',
       climberReach: beta.climberReach ? String(beta.climberReach) : '',
-    })
+    }
+    // Update synchronously so multiple entry calls before a render cannot
+    // replace a newly started session either.
+    currentEditRef.current = { editingBetaId: beta.id, editForm: form }
+    setEditingBetaId(beta.id)
+    setEditForm(form)
+    return true
+  }, [showToast])
+
+  const handleCancelEdit = useCallback(() => {
+    editSessionRef.current += 1
+    currentEditRef.current = { ...currentEditRef.current, editingBetaId: null }
+    setEditingBetaId(null)
   }, [])
 
   const handleSaveBeta = useCallback(async (
     betaId: string,
     selectedRoute: Route,
-    setSelectedRoute: React.Dispatch<React.SetStateAction<Route | null>>,
   ) => {
+    if (editingBetaId !== betaId || savingRef.current) return
+    const submittedSession = editSessionRef.current
+    const submittedDraftKey = JSON.stringify(editForm)
+    savingRef.current = true
     setIsSaving(true)
     try {
       const parsedValues = {
-        title: editForm.title.trim() || undefined,
-        author: editForm.author.trim() || undefined,
-        climberHeight: editForm.climberHeight ? parseInt(editForm.climberHeight, 10) : undefined,
-        climberReach: editForm.climberReach ? parseInt(editForm.climberReach, 10) : undefined,
+        title: editForm.title.trim() || null,
+        author: editForm.author.trim() || null,
+        climberHeight: editForm.climberHeight.trim() ? Number(editForm.climberHeight) : null,
+        climberReach: editForm.climberReach.trim() ? Number(editForm.climberReach) : null,
+      }
+      if ([parsedValues.climberHeight, parsedValues.climberReach].some(value => value !== null && !Number.isFinite(value))) {
+        throw new Error('身高和臂展必须是有效数字')
       }
       const res = await fetch('/api/beta', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ routeId: selectedRoute.id, betaId, ...parsedValues }),
       })
-      if (!res.ok) {
-        const data = await res.json()
+      const data = await res.json()
+      if (!res.ok || !data.beta) {
         throw new Error(data.error || '保存失败')
       }
 
-      updateRouteAndSelected(selectedRoute.id, r => ({
+      updateRoute(selectedRoute.id, r => ({
         ...r,
-        betaLinks: (r.betaLinks || []).map(b => b.id === betaId ? { ...b, ...parsedValues } : b),
-      }), setSelectedRoute)
+        betaLinks: (r.betaLinks || []).map(b => b.id === betaId ? data.beta as BetaLink : b),
+      }))
 
-      setEditingBetaId(null)
-      showToast('Beta 信息已更新', 'success', 3000)
+      const isSubmittedSession = submittedSession === editSessionRef.current
+        && currentEditRef.current.editingBetaId === betaId
+      const hasNewChanges = isSubmittedSession && JSON.stringify(currentEditRef.current.editForm) !== submittedDraftKey
+      if (isSubmittedSession && !hasNewChanges) handleCancelEdit()
+      showToast(
+        hasNewChanges ? '已保存提交内容，后续 Beta 修改尚未保存' : 'Beta 信息已更新',
+        hasNewChanges ? 'info' : 'success',
+        hasNewChanges ? 4000 : 3000,
+      )
     } catch (error) {
       showToast(error instanceof Error ? error.message : '保存失败', 'error', 4000)
     } finally {
+      savingRef.current = false
       setIsSaving(false)
     }
-  }, [editForm, updateRouteAndSelected, showToast])
+  }, [editingBetaId, editForm, updateRoute, showToast, handleCancelEdit])
 
   const handleDeleteBeta = useCallback(async (
     betaId: string,
     selectedRoute: Route,
-    setSelectedRoute: React.Dispatch<React.SetStateAction<Route | null>>,
   ) => {
     setDeletingBetaId(betaId)
     try {
@@ -99,10 +137,10 @@ export function useBetaManagement({ setRoutes }: UseBetaManagementOptions) {
         throw new Error(data.error || '删除失败')
       }
 
-      updateRouteAndSelected(selectedRoute.id, r => ({
+      updateRoute(selectedRoute.id, r => ({
         ...r,
         betaLinks: (r.betaLinks || []).filter(b => b.id !== betaId),
-      }), setSelectedRoute)
+      }))
 
       showToast('Beta 已删除', 'success', 3000)
     } catch (error) {
@@ -110,16 +148,17 @@ export function useBetaManagement({ setRoutes }: UseBetaManagementOptions) {
     } finally {
       setDeletingBetaId(null)
     }
-  }, [updateRouteAndSelected, showToast])
+  }, [updateRoute, showToast])
 
   return {
     editingBetaId,
-    setEditingBetaId,
     editForm,
     setEditForm,
     isSaving,
     deletingBetaId,
+    handleBetaAdded,
     handleStartEdit,
+    handleCancelEdit,
     handleSaveBeta,
     handleDeleteBeta,
   }

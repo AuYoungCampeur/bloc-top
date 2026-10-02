@@ -307,6 +307,7 @@
     "noBeta": "暂无 Beta 视频",
     "beFirst": "成为第一个分享攻略的人吧！",
     "refreshed": "已刷新",
+    "refreshFailed": "刷新失败，当前列表可能不是最新的。请重试。",
     "fromCache": "来自缓存",
     "videoCount": "{count} 个视频",
     "noVideo": "暂无视频",

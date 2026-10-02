@@ -1,18 +1,21 @@
 {
   "name": "bloctop",
   "private": true,
+  "engines": {
+    "node": "^22.12.0 || ^24.0.0"
+  },
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
     "lint": "turbo run lint",
-    "test": "turbo run test:run",
-    "test:run": "turbo run test:run",
+    "test": "turbo run test:run --concurrency=1",
+    "test:run": "turbo run test:run --concurrency=1",
     "test:ct": "turbo run test:ct",
     "typecheck": "turbo run typecheck"
   },
   "lint-staged": {
-    "apps/pwa/**/*.{ts,tsx}": "eslint -c apps/pwa/eslint.config.mjs",
-    "apps/pwa/**/*.{js,mjs}": "eslint -c apps/pwa/eslint.config.mjs"
+    "apps/editor/**/*.{ts,tsx,js,mjs}": "pnpm --dir apps/editor exec eslint",
+    "apps/pwa/**/*.{ts,tsx,js,mjs}": "pnpm --dir apps/pwa exec eslint"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

@@ -21,13 +21,14 @@ export const revalidate = 2592000 // 30 天 (秒)
  * 如果被 Suspense 包裹，每次 URL 参数变化都会触发 fallback 显示，导致闪烁。
  */
 export default async function RouteListPage() {
+  // The city choice belongs to this request; do not query data during the build.
+  const cookieStore = await cookies()
   const [cities, prefectures] = await Promise.all([
     getAllCities(),
     getAllPrefectures(),
   ])
 
   // 解析 cookie 中的城市选择（与首页逻辑一致）
-  const cookieStore = await cookies()
   const rawCity = cookieStore.get(CITY_COOKIE_NAME)?.value
   let selection = parseCitySelection(rawCity)
 

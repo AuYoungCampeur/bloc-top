@@ -1,113 +1,47 @@
 #!/usr/bin/env sh
 
-# Pre-push hook: 并行执行 CI 检查（ESLint 已在 pre-commit 完成）
-# 运行 TypeScript + Vitest + Playwright 并行
+# Test the committed snapshot; serialize heavy checks to limit CPU/memory pressure.
+set -eu
 
-set -e
+release_stash=''
+release_log_dir=$(mktemp -d)
 
-echo ""
-echo "🚀 Running local CI before push..."
-echo "─────────────────────────────────────────────"
-
-# Stash uncommitted changes to test committed code only
-if ! git diff --quiet || ! git diff --cached --quiet; then
-  git stash push --keep-index --include-untracked -q -m "pre-push-hook"
-  STASHED=1
-else
-  STASHED=0
-fi
-
-# Cleanup function
 cleanup() {
-  if [ "$STASHED" = "1" ]; then
-    git stash pop -q 2>/dev/null || true
+  release_status=$?
+  trap - EXIT
+  if [ -n "$release_stash" ]; then
+    if git stash apply --index -q "$release_stash"; then
+      # Another process may have created a stash. Never drop that process's data.
+      if [ "$(git rev-parse stash@{0})" = "$release_stash" ]; then
+        git stash drop -q
+      fi
+    else
+      printf '%s\n' "Could not restore working changes automatically; saved stash: $release_stash" >&2
+      release_status=1
+    fi
   fi
-  # Kill background jobs on exit
-  jobs -p | xargs -r kill 2>/dev/null || true
+  rm -rf "$release_log_dir"
+  exit "$release_status"
 }
 trap cleanup EXIT
 
-# Create temp files for capturing results
-TMPDIR=$(mktemp -d)
-TSC_LOG="$TMPDIR/tsc.log"
-VITEST_LOG="$TMPDIR/vitest.log"
-PLAYWRIGHT_LOG="$TMPDIR/playwright.log"
+if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
+  git stash push --include-untracked -q -m 'pre-push-checks'
+  release_stash=$(git rev-parse stash@{0})
+fi
 
-echo ""
-echo "⚡ Running checks in parallel..."
-echo ""
-
-# Run all checks in parallel
-(
-  echo "📘 TypeScript..."
-  if pnpm run typecheck > "$TSC_LOG" 2>&1; then
-    echo "TSC_PASS" >> "$TSC_LOG"
+run_check() {
+  printf 'Checking %s...\n' "$1"
+  if pnpm run "$1" > "$release_log_dir/$1.log" 2>&1; then
+    printf '%s passed\n' "$1"
+  else
+    cat "$release_log_dir/$1.log"
+    printf '%s failed; push aborted.\n' "$1" >&2
+    return 1
   fi
-) &
-TSC_PID=$!
+}
 
-(
-  echo "🧪 Vitest..."
-  if pnpm run test:run > "$VITEST_LOG" 2>&1; then
-    echo "VITEST_PASS" >> "$VITEST_LOG"
-  fi
-) &
-VITEST_PID=$!
-
-(
-  echo "🎭 Playwright..."
-  if pnpm run test:ct > "$PLAYWRIGHT_LOG" 2>&1; then
-    echo "PLAYWRIGHT_PASS" >> "$PLAYWRIGHT_LOG"
-  fi
-) &
-PLAYWRIGHT_PID=$!
-
-# Wait for all and collect results
-FAILED=0
-
-wait $TSC_PID || true
-if grep -q "TSC_PASS" "$TSC_LOG" 2>/dev/null; then
-  echo "   ✅ TypeScript passed"
-else
-  echo "   ❌ TypeScript failed"
-  cat "$TSC_LOG" 2>/dev/null | grep -v "TSC_PASS" | head -20
-  FAILED=1
-fi
-
-wait $VITEST_PID || true
-if grep -q "VITEST_PASS" "$VITEST_LOG" 2>/dev/null; then
-  # Extract test count
-  TESTS=$(grep -oE "[0-9]+ passed" "$VITEST_LOG" 2>/dev/null | tail -1 || echo "")
-  echo "   ✅ Vitest passed ${TESTS}"
-else
-  echo "   ❌ Vitest failed"
-  cat "$VITEST_LOG" 2>/dev/null | grep -v "VITEST_PASS" | tail -30
-  FAILED=1
-fi
-
-wait $PLAYWRIGHT_PID || true
-if grep -q "PLAYWRIGHT_PASS" "$PLAYWRIGHT_LOG" 2>/dev/null; then
-  # Extract test count
-  TESTS=$(grep -oE "[0-9]+ passed" "$PLAYWRIGHT_LOG" 2>/dev/null | tail -1 || echo "")
-  echo "   ✅ Playwright passed ${TESTS}"
-else
-  echo "   ❌ Playwright failed"
-  cat "$PLAYWRIGHT_LOG" 2>/dev/null | grep -v "PLAYWRIGHT_PASS" | tail -30
-  FAILED=1
-fi
-
-# Cleanup temp files
-rm -rf "$TMPDIR"
-
-echo ""
-echo "─────────────────────────────────────────────"
-
-if [ "$FAILED" -ne 0 ]; then
-  echo "❌ Local CI failed. Push aborted."
-  echo ""
-  echo "💡 To skip (not recommended): git push --no-verify"
-  exit 1
-fi
-
-echo "✅ All checks passed!"
-echo ""
+run_check typecheck
+run_check test:run
+run_check test:ct
+printf '%s\n' 'All pre-push checks passed.'

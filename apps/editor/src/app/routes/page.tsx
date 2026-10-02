@@ -15,12 +15,10 @@ import {
   Trash2,
 } from 'lucide-react'
 import dynamic from 'next/dynamic'
-import Link from 'next/link'
 import { EditorPageHeader } from '@/components/editor/editor-page-header'
 import { Input } from '@bloctop/ui/components/input'
 import { Textarea } from '@bloctop/ui/components/textarea'
 import type { Route } from '@bloctop/shared/types'
-import { useToast } from '@bloctop/ui/components/toast'
 import { useFaceImageCache } from '@bloctop/ui/face-image/use-face-image'
 import { useBreakAppShellLimit } from '@/hooks/use-break-app-shell-limit'
 import { matchRouteByQuery } from '@/hooks/use-route-search'
@@ -67,7 +65,6 @@ export default function RouteAnnotationPage() {
     isLoadingCrags, isLoadingRoutes, stats, updateCragAreas,
   } = useCragRoutes({ editorMode: true })
   const faceImageCache = useFaceImageCache()
-  const { showToast } = useToast()
 
   // ============ R2 上已有的 face 列表 ============
   const [r2Faces, setR2Faces] = useState<R2FaceInfo[]>([])
@@ -75,7 +72,12 @@ export default function RouteAnnotationPage() {
 
   // ============ 导航状态 ============
   const [selectedArea, setSelectedArea] = useState<string | null>(null)
-  const [selectedRoute, setSelectedRoute] = useState<Route | null>(null)
+  const [selectedRouteId, setSelectedRouteId] = useState<number | null>(null)
+  // Routes are the persisted source of truth; selection stores only identity.
+  const selectedRoute = useMemo(
+    () => routes.find(route => route.id === selectedRouteId) ?? null,
+    [routes, selectedRouteId],
+  )
   const [showEditorPanel, setShowEditorPanel] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [filterMode, setFilterMode] = useState<'all' | 'marked' | 'unmarked'>('all')
@@ -102,10 +104,12 @@ export default function RouteAnnotationPage() {
 
   // ============ Beta 管理 ============
   const {
-    editingBetaId, setEditingBetaId,
+    editingBetaId,
     editForm, setEditForm,
     isSaving: isBetaSaving, deletingBetaId,
     handleStartEdit: handleStartBetaEdit,
+    handleCancelEdit: handleCancelBetaEdit,
+    handleBetaAdded,
     handleSaveBeta,
     handleDeleteBeta,
   } = useBetaManagement({ setRoutes })
@@ -114,16 +118,8 @@ export default function RouteAnnotationPage() {
 
   const handleBetaSubmitSuccess = useCallback((newBeta: BetaLink) => {
     if (!selectedRoute) return
-    setRoutes(prev => prev.map(r =>
-      r.id === selectedRoute.id
-        ? { ...r, betaLinks: [...(r.betaLinks || []), newBeta] }
-        : r
-    ))
-    setSelectedRoute(prev => prev && prev.id === selectedRoute.id
-      ? { ...prev, betaLinks: [...(prev.betaLinks || []), newBeta] }
-      : prev
-    )
-  }, [selectedRoute, setRoutes])
+    handleBetaAdded(selectedRoute.id, newBeta)
+  }, [selectedRoute, handleBetaAdded])
 
   const creation = useRouteCreation({
     selectedCragId,
@@ -138,18 +134,18 @@ export default function RouteAnnotationPage() {
   const executePendingAction = useCallback((action: PendingAction) => {
     switch (action.type) {
       case 'switchRoute':
-        setSelectedRoute(action.payload)
+        setSelectedRouteId(action.payload.id)
         setActiveTab('topo')
         break
       case 'switchArea':
         setSelectedArea(action.payload)
-        setSelectedRoute(null)
+        setSelectedRouteId(null)
         setActiveTab('topo')
         setShowEditorPanel(false)
         break
       case 'switchCrag':
         setSelectedCragId(action.payload)
-        setSelectedRoute(null)
+        setSelectedRouteId(null)
         setSelectedArea(null)
         editor.resetEditor()
         setActiveTab('topo')
@@ -157,7 +153,7 @@ export default function RouteAnnotationPage() {
         break
       case 'goBackMobile':
         setShowEditorPanel(false)
-        setSelectedRoute(null)
+        setSelectedRouteId(null)
         setActiveTab('topo')
         break
     }
@@ -284,7 +280,7 @@ export default function RouteAnnotationPage() {
   const handleStartCreate = useCallback(() => {
     const started = creation.handleStartCreate()
     if (started) {
-      setSelectedRoute(null)
+      setSelectedRouteId(null)
       setActiveTab('topo')
       setShowEditorPanel(true)
     }
@@ -293,7 +289,7 @@ export default function RouteAnnotationPage() {
   const handleSubmitCreate = useCallback(async () => {
     const created = await creation.handleSubmitCreate()
     if (created) {
-      setSelectedRoute(created)
+      setSelectedRouteId(created.id)
     }
   }, [creation])
 
@@ -305,7 +301,7 @@ export default function RouteAnnotationPage() {
   const handleDeleteRoute = useCallback(async () => {
     const deleted = await editor.handleDeleteRoute()
     if (deleted) {
-      setSelectedRoute(null)
+      setSelectedRouteId(null)
       setActiveTab('topo')
       setShowEditorPanel(false)
     }
@@ -869,11 +865,12 @@ export default function RouteAnnotationPage() {
                     editForm={editForm}
                     setEditForm={setEditForm}
                     onStartEdit={() => handleStartBetaEdit(beta)}
-                    onCancelEdit={() => setEditingBetaId(null)}
-                    onSave={() => handleSaveBeta(beta.id, selectedRoute, setSelectedRoute)}
-                    onDelete={() => handleDeleteBeta(beta.id, selectedRoute, setSelectedRoute)}
+                    onCancelEdit={handleCancelBetaEdit}
+                    onSave={() => handleSaveBeta(beta.id, selectedRoute)}
+                    onDelete={() => handleDeleteBeta(beta.id, selectedRoute)}
                     isSaving={isBetaSaving}
                     isDeleting={deletingBetaId === beta.id}
+                    editDisabled={editingBetaId !== null && editingBetaId !== beta.id}
                   />
                 ))
               )}
@@ -900,6 +897,23 @@ export default function RouteAnnotationPage() {
         }}
         listLabel="线路列表"
       />
+
+      {editingBetaId !== null && (
+        <div
+          className="mx-4 lg:mx-6 mt-4 p-3 rounded-xl flex flex-wrap items-center justify-between gap-3 text-sm"
+          style={{ backgroundColor: 'var(--theme-surface-variant)', color: 'var(--theme-on-surface)' }}
+          role="status"
+        >
+          <p>当前 Beta 编辑尚未结束。请先保存或取消，再编辑其他 Beta；切换线路后仍会保留草稿。</p>
+          <button
+            onClick={handleCancelBetaEdit}
+            className="shrink-0 px-3 py-2 rounded-lg font-medium"
+            style={{ backgroundColor: 'var(--theme-surface)', color: 'var(--theme-primary)' }}
+          >
+            取消当前 Beta 编辑
+          </button>
+        </div>
+      )}
 
       <div className="max-w-4xl lg:max-w-none mx-auto px-4 lg:px-6 py-4">
         <div className="hidden lg:flex lg:gap-6 lg:h-[calc(100vh-73px)]">

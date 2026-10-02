@@ -1,29 +1,16 @@
-/**
- * 验证 callbackURL 是否为可信域名，防止开放重定向攻击。
- *
- * 可信: 相对路径 (/xxx)、bouldering.top 及子域名、localhost
- */
-export function isTrustedCallbackURL(url: string): boolean {
-  if (!url || typeof url !== 'string') return false
-
-  // 相对路径始终可信
-  if (url.startsWith('/') && !url.startsWith('//')) return true
-
+/** Use the same trusted origins as the authentication server for every login method. */
+export function isTrustedCallbackURL(url: string, trustedOrigins: readonly string[]): boolean {
+  if (!url || typeof url !== 'string' || /[\u0000-\u0020\u007f]/.test(url)) return false
   try {
+    // Relative callbacks must remain relative after browser URL normalization.
+    if (url.startsWith('/')) {
+      const base = 'https://callback.invalid'
+      return !url.startsWith('//') && new URL(url, base).origin === base
+    }
     const parsed = new URL(url)
-
-    // 仅允许 http/https
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
-
-    const hostname = parsed.hostname
-
-    // localhost（开发环境）
-    if (hostname === 'localhost') return true
-
-    // bouldering.top 及其子域名
-    if (hostname === 'bouldering.top' || hostname.endsWith('.bouldering.top')) return true
-
-    return false
+    return ['http:', 'https:'].includes(parsed.protocol)
+      && !parsed.username && !parsed.password
+      && trustedOrigins.includes(parsed.origin)
   } catch {
     return false
   }

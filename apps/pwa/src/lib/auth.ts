@@ -5,6 +5,7 @@ import { passkey } from '@better-auth/passkey'
 import { Resend } from 'resend'
 import { getDatabase, getClientPromise } from '@/lib/mongodb'
 import { magicLinkEmailTemplate } from '@/lib/email-templates'
+import { getAuthRuntimeConfig } from '@bloctop/shared/auth-runtime'
 
 /**
  * Lazy singleton — auth 实例仅在首次请求时初始化，
@@ -22,6 +23,7 @@ export function getAuth(): Promise<ReturnType<typeof betterAuth>> {
       const resend = new Resend(process.env.RESEND_API_KEY)
       const client = await getClientPromise()
       const db = await getDatabase()
+      const runtime = getAuthRuntimeConfig('pwa', process.env)
       console.log('[Auth] MongoDB connected, creating auth instance')
 
       const instance = betterAuth({
@@ -30,11 +32,7 @@ export function getAuth(): Promise<ReturnType<typeof betterAuth>> {
         appName: '寻岩记 BlocTop',
         // 不设 baseURL — 让 better-auth 从请求 Host header 自动推断，
         // 避免 bouldering.top 与 www.bouldering.top 的 origin 校验失败
-        trustedOrigins: [
-          'https://bouldering.top',
-          'https://www.bouldering.top',
-          'https://editor.bouldering.top',
-        ],
+        trustedOrigins: runtime.trustedOrigins,
 
         // 邮箱+密码（内置核心功能，非插件）
         // 注册只走 Magic Link 确保邮箱真实性，密码通过 setPassword 后补
@@ -97,17 +95,8 @@ export function getAuth(): Promise<ReturnType<typeof betterAuth>> {
           }),
 
           passkey({
-            rpID: process.env.NODE_ENV === 'production'
-              ? 'bouldering.top'
-              : 'localhost',
+            ...runtime.passkey,
             rpName: '寻岩记 BlocTop',
-            origin: process.env.NODE_ENV === 'production'
-              ? [
-                  'https://bouldering.top',
-                  'https://www.bouldering.top',
-                  'https://editor.bouldering.top',
-                ]
-              : 'http://localhost:3000',
           }),
         ],
 
@@ -125,17 +114,15 @@ export function getAuth(): Promise<ReturnType<typeof betterAuth>> {
           max: 10,
         },
 
-        advanced: {
-          crossSubDomainCookies: {
-            enabled: true,
-            domain: '.bouldering.top',
-          },
-        },
+        advanced: runtime.advanced,
       })
 
       _auth = instance
       return instance
-    })()
+    })().catch(error => {
+      _promise = null
+      throw error
+    })
   }
   return _promise
 }
