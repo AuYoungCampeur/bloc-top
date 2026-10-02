@@ -72,15 +72,17 @@ PWA 默认 3000，Editor 开发脚本固定 3001。后台首次访问会重定�
 
 Vitest 单元/组件测试使用 `*.test.ts(x)`，Playwright 组件测试使用 `*.ct.tsx`。Editor/PWA 声明 Vitest 4，shared 声明 Vitest 3，修改配置时注意包间差异。
 
-三个 Vitest 包各限制为最多 2 个 worker，避免整仓测试与类型/浏览器检查并行时过度占用 CPU。真实认证库的多步骤隔离会话测试单独使用 15 秒超时；它检查行为，不测生产登录延迟。
+三个 Vitest 包各限制为最多 2 个 worker，根测试命令逐包执行；pre-push 的类型、Vitest、浏览器检查也依次执行，避免共享电脑上重度并发占用 CPU/内存。真实认证库的多步骤隔离会话测试单独使用 15 秒超时；它检查行为，不测生产登录延迟。
 
 2026-10-02 工作区全量 lint、类型检查、Vitest、Playwright 组件测试和双应用生产构建均通过；lint 有既有警告。工作区包含未集成的新建岩场页面与测试，不能将这些检查当作已提交版本或真实生产流程的验收。干净版本验证和发布结果另记于[产品迭代记录](PRODUCT.md)。
 
 Git hooks 实际行为：
 
 - `.husky/pre-commit` 执行 `lint-staged`；根配置匹配 PWA 和 Editor 文件。共享包仍需运行整包检查。
-- `.husky/pre-push` 执行类型检查、Vitest、Playwright，没有单独执行 ESLint。
+- `.husky/pre-push` 依次执行类型检查、Vitest、Playwright，没有单独执行 ESLint；检查提交快照，并恢复暂存的工作区/未跟踪改动，恢复失败会保留 stash 并报告。
 - 不要用「push 成功」替代后台 lint。也不要直接运行 pre-push 来做普通检查，它会暂存工作区改动。
+
+pre-push 的成功和失败路径已在临时 Git 仓库验证：仅检查提交快照，保留并恢复 staged、unstaged、untracked 改动及原有 stash。
 
 仓库 [verify skill](../.agents/skills/verify/SKILL.md) 已改为上述 pnpm 工作区验证入口；它不授予提交/发布权限，也不将组件测试当作真实服务验收。
 

@@ -8,8 +8,8 @@
     "dev": "turbo run dev",
     "build": "turbo run build",
     "lint": "turbo run lint",
-    "test": "turbo run test:run",
-    "test:run": "turbo run test:run",
+    "test": "turbo run test:run --concurrency=1",
+    "test:run": "turbo run test:run --concurrency=1",
     "test:ct": "turbo run test:ct",
     "typecheck": "turbo run typecheck"
   },

@@ -6,9 +6,8 @@ export default defineConfig({
   plugins: [react()],
   test: {
     globals: true,
-    // Three workspace suites run together, including in the parallel push hook.
+    // Bound each package's workers for predictable local and CI resource usage.
     maxWorkers: 2,
-    minWorkers: 1,
     // 单元测试使用 node 环境，组件测试使用 jsdom
     environment: 'jsdom',
     include: ['src/**/*.test.{ts,tsx}'],

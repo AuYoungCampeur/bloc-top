@@ -6,7 +6,6 @@ export default defineConfig({
   plugins: [react()],
   test: {
     globals: true,
-    minWorkers: 1,
     maxWorkers: 2,
     environment: 'jsdom',
     include: ['src/**/*.test.{ts,tsx}'],
