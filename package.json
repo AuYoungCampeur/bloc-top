@@ -24,7 +24,12 @@
       "sharp",
       "unrs-resolver",
       "@parcel/watcher"
-    ]
+    ],
+    "overrides": {
+      "sharp": "0.35.5",
+      "defu": "6.1.7",
+      "vitest": "4.1.11"
+    }
   },
   "devDependencies": {
     "husky": "^9.1.7",

@@ -13,11 +13,13 @@ PWA 提供 Magic Link（Resend 邮件）、邮箱密码、Passkey 登录界面�
 - `getAuth()` 与 MongoDB 连接均为懒初始化，避免模块加载立即访问数据库；这不保证页面构建阶段完全不访问数据库。
 - 两端认证 GET/POST 共用 [auth-route](../packages/shared/src/auth-route/index.ts)，保留 Cookie/重定向并为成功和错误响应设置 `private, no-store`。初始 MongoDB 连接失败会释放失败缓存，让后续请求能重试。
 
-当前配置：Magic Link 10 分钟有效，session 30 天、一天更新一次，session-data Cookie 缓存关闭，better-auth 请求限流窗口 60 秒/10 次。Passkey 的生产 RP ID 为 `bouldering.top`，开发为 `localhost`；两端共同信任 localhost 3000/3001 的开发 origin。
+当前配置：Magic Link 10 分钟有效，session 30 天、一天更新一次，禁用 session Cookie 数据缓存，better-auth 请求限流窗口 60 秒/10 次。Passkey 的生产 RP ID 为 `bouldering.top`，开发为 `localhost`；两端共同信任 localhost 3000/3001 的开发 origin。
 
 两端复用 [auth-runtime.ts](../packages/shared/src/auth-runtime.ts)：开发使用非 Secure 的 host-only Cookie；Vercel production 维持 Secure 共享 Cookie；Preview 使用 Secure host-only Cookie 和部署 hostname 作为 Passkey RP ID，仅支持 `VERCEL_URL` 指向的具体部署入口，分支 alias 的 Passkey 尚未实现。独立的 PWA/Editor Preview 域名不能通过 `.vercel.app` 共享 Cookie，跨应用 Preview 登录需要同一受控父域部署，不视为已实现能力。显式 localhost URL 的本地生产构建仍使用开发 Cookie。见[开发文档](DEVELOPMENT.md)。
 
 PWA 登录页在服务端使用与认证实例一致的 `trustedOrigins` 检查回跳 URL，再把结果传入登录界面，Magic Link、密码、Passkey 共用同一结果。`trusted-url.ts` 只验证同站相对路径或该名单内的 origin，拒绝反斜杠外跳、控制字符、URL 凭据和未配置子域。换部署域名时必须同时检查认证环境的可信来源、Cookie 域和 Passkey RP ID，不能只换首页 URL。
+
+认证路由通过共享 [auth-route](../packages/shared/src/auth-route/index.ts) 设置 `private, no-store`，涵盖成功、重定向和初始化失败。认证懒初始化失败会清除失败 Promise，后续请求可以重试。Better Auth 1.7.7 的隔离集成测试覆盖旧版密码/签名 Cookie、Magic Link 证明邮箱后的凭据处理、旧会话撤销和验证记录目的隔离；不代表真实邮件已投递。升级前未使用的 Magic Link 需重新申请，详见[安全升级说明](SECURITY.md)。
 
 ## 两层权限模型
 

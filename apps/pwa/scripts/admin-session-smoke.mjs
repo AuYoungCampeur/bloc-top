@@ -70,6 +70,14 @@ async function browserPageFacts() {
     const url = new URL(page.url())
     if (!origins.includes(url.origin)) return { fixtureOrigin: false }
     return { fixtureOrigin: true, loginPath: url.pathname === '/zh/login',
+      routePage: /^\/(zh|en|fr)\/route$/.test(url.pathname) ? {
+        locale: url.pathname.split('/')[1], htmlLocale: await page.locator('html').getAttribute('lang'),
+        cragMatchesFixture: url.searchParams.get('crag') === 'smoke-a',
+        cityMatchesFixture: url.searchParams.get('city') === 'luoyuan',
+        queryMatchesFixture: url.searchParams.get('q') === 'Fixture route A',
+        descending: url.searchParams.get('sort') === 'desc',
+        routeCount: await page.locator('main button.text-left').count(),
+      } : null,
       passwordTabCount: await page.getByRole('tab', { name: '密码登录', exact: true }).count(),
       passwordButtonCount: await page.getByRole('button', { name: '密码登录', exact: true }).count(),
       passwordTextCount: await page.getByText('密码登录', { exact: true }).count(),
@@ -249,18 +257,18 @@ function serveFixtureImage(route, url) {
   return route.fulfill({ status: 200, headers: { 'Content-Type': 'image/png', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': pwaOrigin }, body: image })
 }
 
-async function newContext({ preferredLocale = true } = {}) {
+async function newContext({ preferredLocale = true, locale = 'zh' } = {}) {
   const context = await browser.newContext()
   contexts.push(context)
   context.setDefaultTimeout(15000)
   // Model a browser without the feature, rather than rejecting a registration
   // Promise that Serwist may treat as an uncaught error. All pageerrors still fail.
-  await context.addInitScript(({ pwaOrigin, preferredLocale }) => {
+  await context.addInitScript(({ pwaOrigin, preferredLocale, locale }) => {
     delete Navigator.prototype.serviceWorker
-    // Exercise the actual Chinese UI with the application's persisted user
+    // Exercise the actual localized UI with the application's persisted user
     // preference, rather than replacing IP geolocation/auth responses.
-    if (preferredLocale && location.origin === pwaOrigin) localStorage.setItem('preferred-locale', 'zh')
-  }, { pwaOrigin, preferredLocale })
+    if (preferredLocale && location.origin === pwaOrigin) localStorage.setItem('preferred-locale', locale)
+  }, { pwaOrigin, preferredLocale, locale })
   context.on('page', page => {
     page.on('pageerror', () => browserErrors.push(phase))
     page.on('response', response => {
@@ -378,6 +386,7 @@ const fixtureCrag = (id, name, creator) => ({ _id: id, name, cityId: 'luoyuan', 
 
 async function seed() {
   await db.collection('cities').insertOne({ _id: 'luoyuan', name: '罗源测试城市', shortName: '罗源', adcode: '350123', available: true, coordinates: { lng: 119.5, lat: 26.5 } })
+  if (!authOnly) await db.collection('cities').insertOne({ _id: 'xiamen', name: '厦门测试城市', shortName: '厦门', adcode: '350200', available: true, coordinates: { lng: 118.1, lat: 24.5 } })
   // Use the real password registration endpoint rather than forging hash/account
   // records. This auth configuration does not send verification mail on sign-up.
   for (const [name, account] of Object.entries(accounts)) {
@@ -408,6 +417,53 @@ async function seed() {
     { _id: 90001, name: 'Fixture route A', grade: 'V1', cragId: 'smoke-a', area: 'A', ...(!authOnly ? { topoVersion: 0 } : {}) },
     { _id: 90002, name: 'Fixture route B', grade: 'V2', cragId: 'smoke-b', area: 'A', ...(!authOnly ? { topoVersion: 0 } : {}) },
   ])
+}
+
+async function publicLocaleNavigation() {
+  for (const locale of ['zh', 'en', 'fr']) {
+    phase = `${locale} public crag → route → filters preserve locale and owner city`
+    const messages = JSON.parse(await readFile(join(projectDirectory, 'apps/pwa/messages', `${locale}.json`), 'utf8'))
+    const context = await newContext({ locale })
+    await context.addCookies([{ name: 'city', value: 'xiamen', url: pwaOrigin }])
+    const page = await context.newPage()
+    const document = await page.goto(`${pwaOrigin}/${locale}/crag/smoke-a`)
+    assert.equal(document.status(), 200, 'Localized crag must render from the real fixture database')
+    await page.getByRole('heading', { name: '权限岩场 A', level: 1, exact: true }).waitFor()
+    // A locale-less router can accidentally pass when NEXT_LOCALE happens to
+    // match the page. Force a different middleware preference so the visible
+    // locale must be preserved by the application's navigation itself.
+    await context.addCookies([{ name: 'NEXT_LOCALE', value: locale === 'zh' ? 'en' : 'zh', url: pwaOrigin }])
+    await page.getByRole('button', { name: messages.CragDetail.exploreRoutes, exact: true }).click()
+    await page.waitForURL(url => url.pathname === `/${locale}/route` && url.searchParams.get('crag') === 'smoke-a')
+    await expect(page.locator('main button.text-left')).toHaveCount(1)
+    await page.getByRole('button', { name: /Fixture route A/ }).waitFor()
+    assert.equal((await context.cookies(pwaOrigin)).find(cookie => cookie.name === 'city')?.value, 'xiamen', 'Owner-city resolution must not require changing the user city cookie')
+
+    const assertRouteUrl = (url, expected) => {
+      assert.equal(url.pathname, `/${locale}/route`, 'Every filter must preserve the visible locale')
+      assert.equal(url.searchParams.get('crag'), 'smoke-a', 'Every filter must preserve the selected crag')
+      assert.equal(url.searchParams.get('city'), 'luoyuan', 'Every filter must pin the resolved crag owner city')
+      for (const [key, value] of Object.entries(expected)) assert.equal(url.searchParams.get(key), value)
+    }
+    await page.getByRole('button', { name: messages.RouteList.sortAscHint, exact: true }).click()
+    await page.waitForURL(url => url.searchParams.get('sort') === 'desc')
+    assertRouteUrl(new URL(page.url()), { sort: 'desc' })
+    await expect(page.locator('main button.text-left')).toHaveCount(1)
+
+    await page.getByPlaceholder(messages.Search.placeholder, { exact: true }).fill('Fixture route A')
+    await page.waitForURL(url => url.searchParams.get('q') === 'Fixture route A')
+    assertRouteUrl(new URL(page.url()), { sort: 'desc', q: 'Fixture route A' })
+    await expect(page.locator('main button.text-left')).toHaveCount(1)
+    await page.reload()
+    // The active query also appears in a removable filter-chip button.
+    await expect(page.locator('main button.text-left')).toHaveCount(1)
+    await expect(page.locator('main button.text-left')).toContainText('Fixture route A')
+    assertRouteUrl(new URL(page.url()), { sort: 'desc', q: 'Fixture route A' })
+    assert.equal(await page.locator('html').getAttribute('lang'), locale)
+    assert.equal(await page.evaluate(() => localStorage.getItem('preferred-locale')), locale)
+    await context.close()
+    completed.push(`${locale}: actual anonymous crag Explorer + sort/search + full reload retain locale/crag/owner city despite different city and locale cookies`)
+  }
 }
 
 async function isolation(actor, pages) {
@@ -524,6 +580,7 @@ async function run(builds, uri, mongoPort) {
   await seed()
   browser = await chromium.launch({ headless: true })
   if (!authOnly) await firstVisitCallbackPreservation()
+  if (!authOnly) await publicLocaleNavigation()
   const userContext = await newContext()
   await betaSubmission(userContext)
 

@@ -12,55 +12,61 @@ import { getAuthRuntimeConfig } from '@bloctop/shared/auth-runtime'
  * 但不包含 Magic Link 插件（登录在 PWA 完成）。
  * Editor 只需要：验证 session + 检查 admin 角色 + 支持 Passkey
  */
-let _auth: ReturnType<typeof betterAuth> | null = null
-let _promise: Promise<ReturnType<typeof betterAuth>> | null = null
+// Preserve the concrete plugin/adapter type: Auth<Options> is invariant in 1.7.
+type AuthInstance = Awaited<ReturnType<typeof initializeAuth>>
+let _auth: AuthInstance | null = null
+let _promise: Promise<AuthInstance> | null = null
 
-export function getAuth(): Promise<ReturnType<typeof betterAuth>> {
+async function initializeAuth() {
+  const client = await getClientPromise()
+  const db = await getDatabase()
+  const runtime = getAuthRuntimeConfig('editor', process.env)
+
+  const instance = betterAuth({
+    database: mongodbAdapter(db, { client }),
+
+    appName: '寻岩记 BlocTop Editor',
+    trustedOrigins: runtime.trustedOrigins,
+
+    emailAndPassword: { enabled: true, minPasswordLength: 4 },
+
+    account: {
+      accountLinking: { enabled: true },
+    },
+
+    user: {
+      additionalFields: {
+        name: { type: 'string', required: false },
+        height: { type: 'number', required: false },
+        reach: { type: 'number', required: false },
+      },
+    },
+
+    plugins: [
+      admin({ defaultRole: 'user', adminRoles: ['admin'] }),
+      passkey({
+        ...runtime.passkey,
+        rpName: '寻岩记 BlocTop',
+      }),
+    ],
+
+    session: runtime.session,
+
+    rateLimit: { window: 60, max: 10 },
+
+    advanced: runtime.advanced,
+  })
+
+  return instance
+}
+
+export function getAuth(): Promise<AuthInstance> {
   if (_auth) return Promise.resolve(_auth)
   if (!_promise) {
-    _promise = (async () => {
-      const client = await getClientPromise()
-      const db = await getDatabase()
-      const runtime = getAuthRuntimeConfig('editor', process.env)
-
-      const instance = betterAuth({
-        database: mongodbAdapter(db, { client }),
-
-        appName: '寻岩记 BlocTop Editor',
-        trustedOrigins: runtime.trustedOrigins,
-
-        emailAndPassword: { enabled: true, minPasswordLength: 4 },
-
-        account: {
-          accountLinking: { enabled: true },
-        },
-
-        user: {
-          additionalFields: {
-            name: { type: 'string', required: false },
-            height: { type: 'number', required: false },
-            reach: { type: 'number', required: false },
-          },
-        },
-
-        plugins: [
-          admin({ defaultRole: 'user', adminRoles: ['admin'] }),
-          passkey({
-            ...runtime.passkey,
-            rpName: '寻岩记 BlocTop',
-          }),
-        ],
-
-        session: runtime.session,
-
-        rateLimit: { window: 60, max: 10 },
-
-        advanced: runtime.advanced,
-      })
-
+    _promise = initializeAuth().then(instance => {
       _auth = instance
       return instance
-    })().catch(error => {
+    }).catch(error => {
       _promise = null
       throw error
     })

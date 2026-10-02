@@ -2,7 +2,7 @@
 
 import { useRef, useState, useEffect, useMemo } from 'react'
 import { useMediaQuery } from '@/hooks/use-media-query'
-import { useRouter } from 'next/navigation'
+import { useRouter } from '@/i18n/navigation'
 import { useTranslations } from 'next-intl'
 import Image from 'next/image'
 import { FileText, Car, ChevronLeft, Heart, Mountain } from 'lucide-react'

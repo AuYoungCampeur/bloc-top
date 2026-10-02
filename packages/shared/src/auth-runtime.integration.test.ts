@@ -6,6 +6,12 @@ import { admin } from 'better-auth/plugins'
 import { NextRequest, NextResponse } from 'next/server'
 import { createRequireAuth } from './require-auth'
 
+// Auth<Options> carries invariant adapter/plugin types in Better Auth 1.7.
+// This helper only needs its public Request → Response handler.
+interface AuthHandler {
+  handler: (request: Request) => Promise<Response>
+}
+
 describe('localhost PWA → Editor session flow', () => {
   it('creates a usable shared session, rejects an external origin and revokes it on logout', async () => {
     const database: MemoryDB = { user: [], session: [], account: [], verification: [] }
@@ -76,7 +82,7 @@ describe('localhost PWA → Editor session flow', () => {
     const editor = createAuth('editor')
     const legacyPwa = createAuth('pwa', true)
     const cookieFrom = (response: Response) => response.headers.getSetCookie().map(value => value.split(';')[0]).join('; ')
-    const post = (auth: ReturnType<typeof betterAuth>, port: number, path: string, body: object, cookie = '') => auth.handler(new Request(`http://localhost:${port}/api/auth/${path}`, {
+    const post = (auth: AuthHandler, port: number, path: string, body: object, cookie = '') => auth.handler(new Request(`http://localhost:${port}/api/auth/${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Origin: `http://localhost:${port}`, Cookie: cookie },
       body: JSON.stringify(body),

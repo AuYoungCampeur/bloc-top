@@ -127,9 +127,9 @@ Editor 的通知在响应前等待，最长 3 秒，返回配置缺失、HTTP、
 
 两端新建岩场及创建者授权由 [crag-creation.ts](../packages/shared/src/crag-creation.ts) 在同一 MongoDB transaction 内写入；相同创建者和初始字段可按原 ID 重试，其余占用返回冲突。PWA 保留的创建/授权入口采用相同事务与字段/目标存在性政策，控制器仍有重复实现。部署数据库必须支持事务，构建不会执行此服务。线路 ID 计数器首次参考现存最大 ID；无法还原未知历史删除数字。
 
-岩面操作由 [face-management.ts](../packages/shared/src/face-management.ts) 组织 MongoDB 与 R2。改名先条件复制，再改引用，最后清理旧图；删除先清引用再删图。覆盖需检查所得 ETag，使用条件 Put；清 Topo 后上传失败返回部分完成，网络异常明确写入状态不确定。引用变换对 Topo 字段快照做条件更新，保留同时写入的 Beta/文字。成功或不确定写入会更新 `Crag.mediaRevision`，用于离线版本检测。
+岩面操作由 [face-management.ts](../packages/shared/src/face-management.ts) 组织 MongoDB 与 R2。改名先条件复制，再改引用，最后清理旧图；删除先清引用再删图。覆盖需检查所得 ETag，使用条件 Put；清 Topo 后上传失败返回部分完成，网络异常明确写入状态不确定。引用变换对 Topo 字段快照做条件更新，保留同时写入的 Beta/文字。成功或不确定写入会更新 `Crag.mediaRevision`，用于离线版本检测与在线完整内容包刷新；在线失败保留最后完整内容，进入/焦点/可见/联网事件重试，详见[PWA 数据流](PWA.md)。
 
-R2 与 MongoDB 没有跨服务事务或持久恢复日志；HEAD 后删除仍有竞态，R2 Copy 的源与目标条件检查时点也非原子，见 [Cloudflare 说明](https://developers.cloudflare.com/r2/api/s3/extensions/)。部分失败可能留下待清理图片；必须刷新核对，不能把错误响应理解为全部回滚。
+R2 与 MongoDB 没有跨服务事务或持久恢复日志；HEAD 后删除仍有竞态。隔离真实 R2 bucket 测试发现错误 IfMatch 的 DELETE 仍返回 204 并删除对象，不能依赖它解决竞态；R2 Copy 的源与目标条件检查时点也非原子，见 [Cloudflare 说明](https://developers.cloudflare.com/r2/api/s3/extensions/)。部分失败可能留下待清理图片；必须刷新核对，不能把错误响应理解为全部回滚。不可变对象/逻辑目录方案仍在独立下一批实现，当前架构没有该保证。
 
 ## 6. 认证、缓存与部署边界
 
@@ -141,7 +141,7 @@ R2 与 MongoDB 没有跨服务事务或持久恢复日志；HEAD 后删除仍有
 - 全局角色是 `admin | user`；`manager` 是岩场授权，不是第三种全局角色。服务端 API 才是写入权限边界，详见[认证文档](AUTH.md)。
 - 缓存分为 Next 页面/路由缓存、HTTP 缓存、Service Worker、FaceImageCache 内存版本、IndexedDB 离线资料，详见[PWA 文档](PWA.md)。单一失效操作不能刷新所有层。
 - PWA 构建使用 webpack 以生成 Serwist Service Worker；开发模式使用 Turbopack 且关闭 SW。Editor 构建使用默认 `next build`。
-- 代码默认域名是 `bouldering.top`、`editor.bouldering.top`、`img.bouldering.top`，并按 Vercel 部署场景编写。2026-10-02 已只读核对两端 Vercel 正式部署、Node 24 配置及生产 Beta/Mongo；未进行真实 R2 写入或完整账号流程验收。
+- 代码默认域名是 `bouldering.top`、`editor.bouldering.top`、`img.bouldering.top`，并按 Vercel 部署场景编写。2026-10-02 已只读核对两个 Vercel 项目的 Root Directory、Node 24、生产域名和基础版本部署；生产 Beta 读取可用。R2 写入、实际邮件与 Passkey、完整内容发布尚未验收，详见产品记录。
 - 仓库提供 `/api/mobile/sync`，全量返回岩场和线路，响应缓存一天；`lastUpdated` 是响应生成时间，不是可靠的增量同步游标。本仓库没有原生 iOS 应用代码。
 
 ## 7. 修改时应同时检查的范围

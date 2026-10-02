@@ -1,7 +1,8 @@
 'use client'
 
 import { useMemo, useCallback, useState, useTransition, useEffect } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
+import { useRouter } from '@/i18n/navigation'
 import { useTranslations } from 'next-intl'
 import { FILTER_PARAMS, getGradesByValues, DEFAULT_SORT_DIRECTION, type SortDirection } from '@/lib/filter-constants'
 import { compareGrades } from '@/lib/grade-utils'

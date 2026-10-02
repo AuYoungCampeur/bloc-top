@@ -81,16 +81,41 @@ PM/Team Lead 负责优先级、数据边界、架构评审与集成验收；后�
 
 ## 可靠发布批次：当前源码与验收边界
 
-当前 `codex/reliable-publishing` 实现并验收了本地 Mongo 12 项事务/并发用例：回滚、重复创建、稳定授权主键、计数器首次并发初始化、不复用删除 ID、旧 Topo 保存冲突以及 Beta 并发保留。两端 Topo PATCH 使用版本条件；真实认证库测试关闭新旧 session Cookie 缓存的过期授权，两端创建/授权入口政策统一。Editor 跨端通知等待最多 3 秒，主要保存入口以 refreshPending 提示已保存但发布可能延迟。上述是工作区证据，尚未发布；完整集成检查另记。两端 Beta 账号/session/线路/抽屉迟到保护完成，PWA 858 项及 Editor 285 项完整 Vitest 通过，目标 lint 通过；真实浏览器提交验收尚待新构建。
+当前 `codex/reliable-publishing` 在已发布内容/安全版本之上继续改进。本地 Mongo 12 项事务/并发用例已通过：回滚、重复创建、稳定授权主键、计数器首次并发初始化、不复用删除 ID、旧 Topo 保存冲突以及 Beta 并发保留。两端 Topo PATCH 使用版本条件；关闭新旧 session Cookie 缓存的过期授权，两端创建/授权入口政策统一。Editor 跨端通知等待最多 3 秒，主要保存入口以 refreshPending 提示已保存但发布可能延迟。两端 Beta 账号/session/线路/抽屉迟到保护、在线完整内容包刷新和离线跨标签页协作属于本批次；完整集成检查、浏览器行为和发布状态分别记录，不能视为已经上线。
 
-离线真实浏览器夹具使用实际下载按钮/provider、原生 IDB/Cache 和跨 origin 本地 HTTP 图片，已经验证失败、重试、更新、取消及 Web Locks/BroadcastChannel 协作。扩展复测捕获偶发 React #418 页面水合错误，严格测试正确失败，内容 PR #293 暂缓合并；此前通过的基本冷启动和 CI 不消除此阻断。字体构建网络依赖已改为有许可的本地字体，最新远端双 Node 检查及 Preview 成功仍不代表生产发布。
+离线真实浏览器夹具使用实际下载按钮/provider、原生 IDB/Cache 和跨 origin 本地 HTTP 图片。扩展复测曾捕获偶发 React #418 页面水合错误并阻止内容 PR #293 发布；升级后的严格实际阅读器回归通过，PR #293 已正式发布，见下文。完整下载取消/跨标签页测试仍须在本批次的新构建上重新通过。字体构建网络依赖已改为有许可的本地字体。
 
-产品尚未达到完整成熟度：真实 R2 条件写入、新线路晚加入岩面引用、图片 HEAD→Delete 和跨服务崩溃恢复仍未解决。离线两个存储不构成事务，Safari、缺少 Web Locks 的跨标签页及存储回收仍需验收。`mediaRevision` 用于离线版本，未让其他客户端在线图片自动失效；真实邮件/Passkey、通知持久恢复及所有已打开页面的刷新链路仍需迭代。
+产品尚未达到完整成熟度：真实 R2 条件 PUT/COPY 的有限范围已验收，但新线路晚加入岩面引用、图片 HEAD→DELETE 和跨服务崩溃恢复仍未解决。R2 实测会忽略 DeleteObject 的 IfMatch，不能靠这个参数修复竞态。离线两个存储不构成事务，Safari、缺少 Web Locks 的跨标签页及存储回收仍需验收。在线 `mediaRevision` 刷新已实现并有源码浏览器夹具证据，尚不证明完整 Next SSR/生产写入链路；真实邮件/Passkey和通知持久恢复仍需迭代。
 
 每次完成迭代后补充实际命令、行为证据和剩余工作；完成计划不能代替产品验收。
 
-## 安全升级：独立验收中
+2026-10-02 可靠发布集成：合入已发布的安全/内容源码后，frozen install、强制 lint/四包类型/1,700 项 Vitest（PWA 876/shared 539/Editor 285）、12 项 Chromium 组件测试、双应用强制构建通过；这些检查未复用 Turbo 缓存，lint 保留 PWA 5/Editor 4 项既有警告。原先混合 runner 导致 jest-dom matcher 失败，统一 Vitest 4.1.11 与根 override 后实际 peer/CLI 解析一致，完整重跑通过，没有删断言或改 matcher 类型规避错误。真实 Mongo 12 项事务/并发用例再次通过。
 
-依赖 audit 与官方公告核实 Next 16.1.2、Better Auth 1.4.18 的已修复漏洞范围；PWA 的 Magic Link 与开放密码注册满足 GHSA-qq9h-g4jm-xgf3 的条件。项目没有启用 social/Generic OAuth，因此不声称满足 GHSA-965c-763c-88jm 的 OAuth 前提。独立 `codex/framework-security` 从已发布 main 验证 Next/ESLint 16.3.8、Better Auth/Passkey 1.7.7、AWS S3 SDK 3.1145.0 及 Sharp 0.35.5，并统一 shared/ui 的 Next peer，避免进程加载旧框架副本。升级验收和生产部署尚未完成；旧 pending Magic Link 需重新申请，无 user/account schema migration，须协调共享 verification 存储的节点切换。
+同一集成构建的完整双端浏览器与真实隔离 Mongo 验收通过 14 个流程：首次语言检测保留登录 callback/hash，三语岩场→线路→排序/搜索→刷新保持语言/岩场/所属城市，Beta 即时展示/去重/持久化，真实密码登录与跨端刷新，新建岩场及创建者授权、两端相同请求重试，Editor 表单保存等待 webhook 后匿名 PWA API/SSR 可见，四种身份的双端隔离，降权后的旧 Cookie 拒绝和退出 replay 拒绝。业务 API 未 mock；仅三个明确图片路径用本地 PNG，天气被中止，浏览器显式缺少 SW 功能。随机测试库与进程已清理，没有生产写入；邮件、Passkey、地图、R2、SW 不在该流程范围。
 
-源码公告：[Magic Link/密码预注册](https://github.com/better-auth/better-auth/security/advisories/GHSA-qq9h-g4jm-xgf3)、[Better Auth 1.7.7](https://github.com/better-auth/better-auth/releases/tag/v1.7.7)、[Next 16.3.8](https://github.com/vercel/next.js/releases/tag/v16.3.8)。audit 的包版本命中与生产可利用条件需要分别核实，不能把包含开发工具的审计总数直接当作线上漏洞数量。
+该批次的新构建继续通过直接 Next HTML 60 次水合、真实 CSP 的本地 blob worker、中英法各 3 次 SW 断网冷启动/详情刷新，以及完整下载的 8 类故障/协作用例。完整下载包含 HTTP/CORS/坏图 4/5→重试 5/5、同数版本更新失败保留旧包、取消与迟到响应、双标签页 Web Locks/BroadcastChannel 删除/更新/清理，以及缺少协作 API 的同标签页退化路径；0 pageErrors/外连。在线完整内容源组件/SW 的 5 类本地 HTTP 用例通过：旧字节→新 cover/legacy/face/multi/缩略图/全屏及 Topo 配套更新、替换图失败不保留旧缩略像素、相同媒体版本仍更新 Topo、迟到岩场 A 响应不影响 B、在线更新后已下载离线字节/Topo 仍固定原包。在线夹具使用本地 sticky optimizer adapter，不代表完整 Next SSR/真实 R2 原子更新。
+
+迁移前只读盘点从正式公开 API 读取 4 岩场/164 线路，另列主 env 的开发库 2/47，未混为一套数据。64 条旧单图、21 条单图数组和一条多图数组的显式岩面 key 均在所配置 bucket 的清单中；正式域名到 bucket 的绑定未独立确认。78 条无岩面回退线路均无 Topo 几何，默认猜测的线路名图片 key 不存在，却被当前 manifest 当作必需下载，仍须修复；候选未绑定媒体不能据此删除。盘点只读 DB 投影/R2 LIST/公开 GET，没有图片下载或迁移。
+
+
+## 发布状态与安全升级
+
+基础版本 PR #292 已合并至 main，并部署 PWA 与 Editor；Beta GET 的只读生产检查返回 `no-store` / CDN MISS，已有 Beta 能在页面读取。提交后即时显示已通过隔离数据库下完整浏览器验收，见本节下文；没有执行新的生产 Beta 写入。
+
+内容版本 PR #293 曾因实际生产构建页面的间歇 React #418 错误暂缓合并；旧版直接 Next HTTP、无代理或 SW 仍复现。合入安全主线并重新验收新阅读器后，源版本 `7a3ef0e` 的 push/PR 两组 Node 22/24 完整 CI 和两个 Vercel Preview 成功，正式合并版本为 `9e2f566`。生产 PWA `dpl_A6SCjFhV1iL2VvJ1gMcaEAwGr2g3`、Editor `dpl_7vANyARBkRyPrEk5jMK5wLm32YDR` 均为该 main 版本的 READY，正式域名已指向对应部署。
+
+安全版本 PR #294 已合并，合并版本为 `c04cded`，两个 Node 版本的 push/PR 完整 CI 与两个 Preview 全部成功。当次 PWA `dpl_3HWX1FZL7cdn6hp8yT99qbZgEHdB`、Editor `dpl_5ai4sb6EFX6e1mQoQHiiBUoHkc1E` 均为该 commit 的 production READY，正式域名当时指向对应版本；匿名 session GET 返回 `private, no-store`。旧版密码与会话、Magic Link 验证记录兼容性及双应用真实浏览器流程已独立核对。本地许可字体消除构建对 Google Fonts 的请求。当前可靠发布改动仍在独立工作区，未视为已发布或产品成熟。
+
+安全工作区 Node 22 的 frozen install、两端 lint、四包类型、1,242 项 Vitest（PWA 719 / shared 399 / Editor 124）、12 项 Chromium 组件测试和两端强制构建通过。lint 保留既有警告；类型与单元检查各有一项 Turbo 缓存复用，构建没有复用缓存。新版 main 离线页的直接 HTML 60 次浏览器回归通过、页面错误为零；这尚不代表新版离线阅读器通过。六个本轮处理的运行时依赖 Next / Better Auth / Sharp / fast-xml-parser / next-intl / defu 在依赖审计中已无报告条目；整体审计仍有构建/测试工具条目，不宣称全依赖清零。
+
+双端真实浏览器与本地 Mongo replica set 的 `--auth-only` 验收通过：真实密码注册/登录 → Editor 与刷新，admin/manager A/user/匿名 API 隔离，真实降权后旧 Cookie 不再具有管理/非自有写入权限，退出后两端与旧 Cookie replay 均被拒绝。Beta POST 201 后列表立即显示、没有额外 GET，重复 409，重开和整页刷新仍恰好一条；页面错误与非夹具外连均为零。线路图片仅通过三个明确路径的本地 PNG 适配，测试随机库与应用进程已清理；未写生产、未验收邮件/真实 Passkey/R2/SW。
+
+真实 R2 GET/HEAD 与新 AWS SDK 读取成功；发现 bucket 没有 CORS 后，仅补指定网站的 GET/HEAD 跨域配置。配置后 www、editor、localhost:3000 的真实浏览器 GET、解码、Cache API 保存和断网解码均通过，图片响应未 mock。没有写图片或数据库；这不证明条件写入、引用改名/删除或完整应用下载流程成功，配置及缓存边界见 [PWA 文档](PWA.md)。
+
+内容版本合入 Next 16.3.8 后，本地 Node 22 frozen install、lint、四包类型、1,543 项 Vitest（PWA 800/shared 520/Editor 223）、12 项 Chromium 组件测试和两端强制构建通过；Vitest/组件/构建未复用缓存，最后类型检查复用三包缓存。最初旧 `.next/types` 导致类型失败，保留旧生成目录后重生成通过；没有修改类型定义规避错误。实际新阅读器直接 HTML 60 次导航、三语各 3 次 SW 断网冷启动/多图详情刷新均通过，0 pageErrors。真实源码下载按钮/provider 配合本地跨 origin HTTP fixture，验证损坏图片、HTTP/CORS 失败 4/5、重试复用成功项并完成 5/5、同数版本更新失败保留旧快照/重试清理旧图片，以及每次成功后的三语断网阅读，0 pageErrors/外连。严格 SW 检查首轮因遗漏本地版本读取 fixture 失败，仅补明确测试岩场的版本响应后重跑通过；没有过滤页面错误。
+
+同一内容构建的真实双端密码登录/权限/Beta `--auth-only` 再次通过；随机 Mongo 测试库和应用进程已清理。新建岩场、完整后台内容发布、跨标签页和 Safari 不在该模式验收范围。React HostComponent 挂起后的 replay 在旧 vendored React 中没有恢复 hydration cursor，新 Next 包含[官方恢复修复](https://github.com/react/react/pull/35494)；源码机制与复现相符，浏览器回归给出有限范围的零错误证据，不承诺不存在其他渲染问题。
+
+PR #293 发布后的生产匿名只读浏览器检查：正常启用 SW 的中文/英文桌面首页、跨城市岩场入口、50 条线路、route 39 真实图片与已有一条 Beta GET 刷新、route 35 两张 Topo 均通过，0 pageErrors；法语移动直接线路深链接和同样的阅读流程通过。法语岩场的 Explorer 按钮失败：原生 router 使用裸 `/route`，丢失 locale；线路筛选还有同类入口，本批次修复。匿名 Editor 正确跳到 PWA 登录并保留正式后台 callback。所有非 GET 被中止，没有生产登录、提交、下载或外链访问；地图 blob worker 的 CSP 错误另行记录并补显式 worker-src。Playwright 禁用 SW 的最初上下文出现 Serwist registration 的 waiting 错误，该结果独立保留，没有算作正常 SW 路径验收通过。
+
+真实媒体传输验收使用 AWS SDK 3.1145.0 和两端实际 R2 adapter，在独立临时 bucket 执行 28 项 GET/HEAD、条件 PUT、源/目标条件 COPY、Unicode 路径、Content-Type/ETag、分页和并发复制用例；131 次 SDK 调用，全部通过，bucket 删除并 HEAD 404 确认。另一个独立 bucket 的 DELETE 反证：确认错误 IfMatch header 已发送，DELETE 204，随后 HEAD/GET 404，原对象未保留。该用例按失败记录并停止继续删除测试，临时 bucket 同样清理；没有写生产 bucket 或数据库。ETag 不能替代对象代次，条件 PUT/COPY 通过也不能证明共享业务引用或跨服务事务安全。

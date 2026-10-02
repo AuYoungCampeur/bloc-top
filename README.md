@@ -11,7 +11,7 @@
 
 后台界面仍使用「Topo 编辑器」这个名称，但职责已覆盖内容管理。它没有自己的登录页，登录入口在 PWA。两个应用各自提供 Next.js API，共享 MongoDB 数据和 R2 图片；没有单独的后端服务项目。
 
-> 文档更新于 2026-10-02，描述当前源码。基础改进已通过 PR #292 发布，内容一致性及可靠发布仍在验收；部署、实际验证与未通过项目见 [产品迭代记录](docs/PRODUCT.md)。
+> 文档核对日期：2026-10-02。本文描述当前源码；已发布版本、验证结果和待解决问题分别记录于[产品迭代与验收](docs/PRODUCT.md)。后续内容改动尚未全部发布。
 
 ## 先读什么
 
@@ -20,7 +20,7 @@
 3. [开发与验证](docs/DEVELOPMENT.md)：环境变量、启动命令、测试、部署配置及当前限制。
 4. [认证与权限](docs/AUTH.md) / [用户端与缓存数据流](docs/PWA.md)：需要深入具体模块时阅读。
 
-[文档目录与清理记录](docs/README.md)说明旧文档的去向；[CLAUDE.md](CLAUDE.md)仅保留代码协作约定。
+[安全依赖与升级边界](docs/SECURITY.md)记录认证兼容性、漏洞适用条件和发布要求。[文档目录与清理记录](docs/README.md)说明旧文档的去向；[CLAUDE.md](CLAUDE.md)仅保留代码协作约定。
 
 ## 仓库结构
 
@@ -35,7 +35,7 @@ scripts/               额外的数据导入工具
 docs/                  当前项目文档与保留的 iOS 历史 PRD
 ```
 
-主要依赖声明：Next.js **16.1.2**、React **19.2.3**、TypeScript 5、Tailwind CSS 4、MongoDB 原生驱动 7、better-auth 1.4、Serwist 9、next-intl 4、pnpm **10.29.3**、Turborepo 2。MongoDB 驱动版本不代表数据库服务端版本；精确安装版本见 `pnpm-lock.yaml`。
+主要依赖声明：Next.js **16.3.8**、React **19.2.3**、TypeScript 5、Tailwind CSS 4、MongoDB 原生驱动 7、better-auth **1.7.7**、Serwist 9、next-intl **4.9.2**、pnpm **10.29.3**、Turborepo 2。MongoDB 驱动版本不代表数据库服务端版本；精确安装版本见 `pnpm-lock.yaml`。
 
 ## 本地准备
 
