@@ -45,18 +45,28 @@ export function useBetaManagement({ setRoutes }: UseBetaManagementOptions) {
   }, [updateRoute])
 
   const handleStartEdit = useCallback((beta: BetaLink) => {
+    if (currentEditRef.current.editingBetaId !== null) {
+      showToast('请先保存或取消当前 Beta 编辑', 'info', 3000)
+      return false
+    }
     editSessionRef.current += 1
-    setEditingBetaId(beta.id)
-    setEditForm({
+    const form = {
       title: beta.title || '',
       author: beta.author || '',
       climberHeight: beta.climberHeight ? String(beta.climberHeight) : '',
       climberReach: beta.climberReach ? String(beta.climberReach) : '',
-    })
-  }, [])
+    }
+    // Update synchronously so multiple entry calls before a render cannot
+    // replace a newly started session either.
+    currentEditRef.current = { editingBetaId: beta.id, editForm: form }
+    setEditingBetaId(beta.id)
+    setEditForm(form)
+    return true
+  }, [showToast])
 
   const handleCancelEdit = useCallback(() => {
     editSessionRef.current += 1
+    currentEditRef.current = { ...currentEditRef.current, editingBetaId: null }
     setEditingBetaId(null)
   }, [])
 

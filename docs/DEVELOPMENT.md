@@ -80,6 +80,8 @@ Git hooks 实际行为：
 - `.husky/pre-push` 执行类型检查、Vitest、Playwright，没有单独执行 ESLint。
 - 不要用「push 成功」替代后台 lint。也不要直接运行 pre-push 来做普通检查，它会暂存工作区改动。
 
+仓库 [verify skill](../.agents/skills/verify/SKILL.md) 已改为上述 pnpm 工作区验证入口；它不授予提交/发布权限，也不将组件测试当作真实服务验收。
+
 ## 5. 生产构建与部署配置
 
 代码按两个独立 Vercel 应用设计。恢复部署时应核实各项目 Root Directory 分别指向 `apps/pwa` / `apps/editor`，能解析根 workspace 与锁文件，并分别配置环境变量。此处是部署检查清单，不代表远端已如此设置。

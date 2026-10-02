@@ -46,6 +46,32 @@ describe('useBetaManagement', () => {
     expect(result.current.routes[1].betaLinks).toEqual([mockBeta])
   })
 
+  it('直接切换或重复开始同一 Beta 编辑都保留已有草稿，显式取消后才允许新会话', () => {
+    const { result } = setup()
+    const betaB = { ...mockBeta, id: 'beta-2', title: 'B 标题' }
+    act(() => result.current.management.handleStartEdit(mockBeta))
+    act(() => result.current.management.setEditForm(prev => ({ ...prev, title: 'A 未保存草稿' })))
+    act(() => { expect(result.current.management.handleStartEdit(betaB)).toBe(false) })
+    act(() => { expect(result.current.management.handleStartEdit(mockBeta)).toBe(false) })
+    expect(result.current.management.editingBetaId).toBe(mockBeta.id)
+    expect(result.current.management.editForm.title).toBe('A 未保存草稿')
+    act(() => {
+      result.current.management.handleCancelEdit()
+      expect(result.current.management.handleStartEdit(betaB)).toBe(true)
+    })
+    expect(result.current.management.editingBetaId).toBe(betaB.id)
+    expect(result.current.management.editForm.title).toBe('B 标题')
+  })
+
+  it('同一事件中连续调用编辑入口也只能启动第一个会话', () => {
+    const { result } = setup()
+    act(() => {
+      expect(result.current.management.handleStartEdit(mockBeta)).toBe(true)
+      expect(result.current.management.handleStartEdit({ ...mockBeta, id: 'beta-2' })).toBe(false)
+    })
+    expect(result.current.management.editingBetaId).toBe(mockBeta.id)
+  })
+
   it('保存采用服务器 Beta 记录，并只更新对应线路', async () => {
     const savedBeta = { ...mockBeta, title: '服务端规范化标题', author: '李四', climberHeight: 175, climberReach: 180 }
     vi.mocked(fetch).mockResolvedValueOnce({

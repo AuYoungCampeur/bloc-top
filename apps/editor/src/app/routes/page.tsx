@@ -870,6 +870,7 @@ export default function RouteAnnotationPage() {
                     onDelete={() => handleDeleteBeta(beta.id, selectedRoute)}
                     isSaving={isBetaSaving}
                     isDeleting={deletingBetaId === beta.id}
+                    editDisabled={editingBetaId !== null && editingBetaId !== beta.id}
                   />
                 ))
               )}
@@ -896,6 +897,23 @@ export default function RouteAnnotationPage() {
         }}
         listLabel="线路列表"
       />
+
+      {editingBetaId !== null && (
+        <div
+          className="mx-4 lg:mx-6 mt-4 p-3 rounded-xl flex flex-wrap items-center justify-between gap-3 text-sm"
+          style={{ backgroundColor: 'var(--theme-surface-variant)', color: 'var(--theme-on-surface)' }}
+          role="status"
+        >
+          <p>当前 Beta 编辑尚未结束。请先保存或取消，再编辑其他 Beta；切换线路后仍会保留草稿。</p>
+          <button
+            onClick={handleCancelBetaEdit}
+            className="shrink-0 px-3 py-2 rounded-lg font-medium"
+            style={{ backgroundColor: 'var(--theme-surface)', color: 'var(--theme-primary)' }}
+          >
+            取消当前 Beta 编辑
+          </button>
+        </div>
+      )}
 
       <div className="max-w-4xl lg:max-w-none mx-auto px-4 lg:px-6 py-4">
         <div className="hidden lg:flex lg:gap-6 lg:h-[calc(100vh-73px)]">

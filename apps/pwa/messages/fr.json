@@ -275,6 +275,7 @@
     "noBeta": "Pas encore de vidéo beta",
     "beFirst": "Soyez le premier à partager un beta !",
     "refreshed": "Actualisé",
+    "refreshFailed": "Échec de l’actualisation. Cette liste peut ne pas être à jour. Veuillez réessayer.",
     "fromCache": "Depuis le cache",
     "videoCount": "{count, plural, =1 {# vidéo} other {# vidéos}}",
     "noVideo": "Aucune vidéo",

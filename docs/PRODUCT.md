@@ -68,8 +68,10 @@ PM/Team Lead 负责优先级、数据边界、架构评审与集成验收；后�
 | --- | --- |
 | 2026-10-02 起始检查 | 当前基线 `5754b72`；生产 Beta GET 仍返回 `no-store`、`x-vercel-cache: MISS`。新一轮尚未进行生产数据写入或全流程验收 |
 | 2026-10-02 基础改进工作区 | `pnpm install --frozen-lockfile --offline`、`pnpm lint`、`pnpm typecheck`、`pnpm test:run`、`pnpm test:ct`、`pnpm build` 均通过；Playwright 为 12 项组件测试，lint 有既有警告。Vitest 覆盖认证库隔离会话、Beta API 权限/并发、后台异步编辑与 SW 缓存策略；不代表真实邮件、Passkey、生产提交或浏览器离线验收 |
-| 2026-10-02 已提交源码快照 | `242e44a` 导出到空目录，未复制 env 或工作区既有开发文件；frozen offline install 和 1,218 项 Vitest 通过。首次无凭据构建暴露岩场枚举访问 DB；移除构建时查询并补请求状态读取顺序后，Node 22 下强制重新执行双应用构建通过（未使用 Turbo 构建缓存）。CI 远端结果仍待核对 |
+| 2026-10-02 已提交源码快照 | `242e44a` 导出到空目录，未复制 env 或工作区既有开发文件；frozen offline install 和 1,218 项 Vitest 通过。首次无凭据构建暴露岩场枚举访问 DB；移除构建时查询并补请求状态读取顺序后，Node 22 下强制重新执行双应用构建通过（未使用 Turbo 构建缓存）。远端结果见下条 |
 | 2026-10-02 Vercel 设置只读核对 | `escalade-pwa` / `bloc-top-editor` Root Directory 分别为 `apps/pwa` / `apps/editor`，Node 为 24.x；仅核对配置，未修改真实数据库或上传对象 |
+| 2026-10-02 远端基础版本 | `c7b4d24` 的 push 与 PR 两次 GitHub Actions 中，Node 22/24 的安装、lint、类型、Vitest、Chromium 组件测试及无凭据构建全部成功；两个 Vercel Preview 构建成功。未将 Preview 构建成功视为生产部署或跨应用登录验收 |
+| 2026-10-02 独立复查收口 | 修复直接切换 Beta 编辑覆盖草稿：同一工作台保留编辑会话并提供始终可达的取消入口；全 Editor 175 项测试通过（含既有未跟踪测试），类型与目标 lint 通过。Beta 外链/复制使用独立控件，刷新失败可重试且错误按线路隔离，18 项组件回归、PWA 类型及目标 lint 通过。Beta 草稿在离开页面/刷新后仍不保留，浏览器 SW 升级和真实提交验收未执行 |
 | 工作区既有开发 | `.serena/project.yml`、未跟踪的新建岩场页面及权限面板测试保留；未评审内容不会直接当作已交付功能 |
 
 每次完成迭代后补充实际命令、行为证据和剩余工作；完成计划不能代替产品验收。
