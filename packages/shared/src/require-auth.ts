@@ -12,7 +12,7 @@ export interface AuthInfo {
  */
 export interface AuthInstance {
   api: {
-    getSession: (opts: { headers: Headers }) => Promise<{ user?: { id?: string; role?: string } | null } | null>
+    getSession: (opts: { headers: Headers; query: { disableCookieCache: true } }) => Promise<{ user?: { id?: string; role?: string | null } | null } | null>
   }
 }
 
@@ -28,7 +28,12 @@ export function createRequireAuth(
 ): (request: NextRequest) => Promise<AuthInfo | NextResponse> {
   return async (request: NextRequest) => {
     const auth = await getAuth()
-    const session = await auth.api.getSession({ headers: request.headers })
+    // Authorization must observe current roles and revoked sessions, including
+    // cookies issued by an older deployment with session-data caching enabled.
+    const session = await auth.api.getSession({
+      headers: request.headers,
+      query: { disableCookieCache: true },
+    })
 
     if (!session?.user?.id) {
       return NextResponse.json(
@@ -39,7 +44,7 @@ export function createRequireAuth(
 
     return {
       userId: session.user.id,
-      role: ((session.user as { role?: string }).role || 'user') as UserRole,
+      role: (session.user.role || 'user') as UserRole,
     }
   }
 }

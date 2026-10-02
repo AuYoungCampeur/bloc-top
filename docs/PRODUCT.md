@@ -84,3 +84,22 @@ PM/Team Lead 负责优先级、数据边界、架构评审与集成验收；后�
 内容批次不代表达到完整成熟度：真实 Mongo 事务/并发与 R2 条件写入尚未验收；Topo 引用服务自身条件更新不阻止迟到的旧线路 PATCH；图片 HEAD→Delete 和跨服务崩溃恢复仍未解决。PWA 保留的创建岩场与授权 API 尚未接入 Editor 的全部事务/验证政策。离线两个存储及跨标签页操作不构成事务，Safari/存储回收仍需验收。`mediaRevision` 用于离线版本，并未让其他客户端在线图片自动失效；完整账号、通知恢复及发布到当前页面的刷新链路仍需迭代。
 
 每次完成迭代后补充实际命令、行为证据和剩余工作；完成计划不能代替产品验收。
+
+
+## 发布状态与安全升级
+
+基础版本 PR #292 已合并至 main，并部署 PWA 与 Editor；Beta GET 的只读生产检查返回 `no-store` / CDN MISS，已有 Beta 能在页面读取。提交后即时显示已通过隔离数据库下完整浏览器验收，见本节下文；没有执行新的生产 Beta 写入。
+
+内容版本 PR #293 曾因实际生产构建页面的间歇 React #418 错误暂缓合并；直接 Next HTTP、无代理或 SW 仍复现。已将安全主线合入该版本，重新验收实际新阅读器，远端检查与发布另记，不能用此前 CI 绿灯覆盖旧失败。
+
+安全版本 PR #294 已合并，main 为 `c04cded`，两个 Node 版本的 push/PR 完整 CI 与两个 Preview 全部成功。PWA `dpl_3HWX1FZL7cdn6hp8yT99qbZgEHdB`、Editor `dpl_5ai4sb6EFX6e1mQoQHiiBUoHkc1E` 均为该 commit 的 production READY，正式域名指向对应版本；匿名 session GET 返回 `private, no-store`。旧版密码与会话、Magic Link 验证记录兼容性及双应用真实浏览器流程已独立核对。本地许可字体消除构建对 Google Fonts 的请求。内容与可靠发布改动仍在独立工作区，未视为已发布或产品成熟。
+
+安全工作区 Node 22 的 frozen install、两端 lint、四包类型、1,242 项 Vitest（PWA 719 / shared 399 / Editor 124）、12 项 Chromium 组件测试和两端强制构建通过。lint 保留既有警告；类型与单元检查各有一项 Turbo 缓存复用，构建没有复用缓存。新版 main 离线页的直接 HTML 60 次浏览器回归通过、页面错误为零；这尚不代表新版离线阅读器通过。六个本轮处理的运行时依赖 Next / Better Auth / Sharp / fast-xml-parser / next-intl / defu 在依赖审计中已无报告条目；整体审计仍有构建/测试工具条目，不宣称全依赖清零。
+
+双端真实浏览器与本地 Mongo replica set 的 `--auth-only` 验收通过：真实密码注册/登录 → Editor 与刷新，admin/manager A/user/匿名 API 隔离，真实降权后旧 Cookie 不再具有管理/非自有写入权限，退出后两端与旧 Cookie replay 均被拒绝。Beta POST 201 后列表立即显示、没有额外 GET，重复 409，重开和整页刷新仍恰好一条；页面错误与非夹具外连均为零。线路图片仅通过三个明确路径的本地 PNG 适配，测试随机库与应用进程已清理；未写生产、未验收邮件/真实 Passkey/R2/SW。
+
+真实 R2 GET/HEAD 与新 AWS SDK 读取成功；发现 bucket 没有 CORS 后，仅补指定网站的 GET/HEAD 跨域配置。配置后 www、editor、localhost:3000 的真实浏览器 GET、解码、Cache API 保存和断网解码均通过，图片响应未 mock。没有写图片或数据库；这不证明条件写入、引用改名/删除或完整应用下载流程成功，配置及缓存边界见 [PWA 文档](PWA.md)。
+
+内容版本合入 Next 16.3.8 后，本地 Node 22 frozen install、lint、四包类型、1,543 项 Vitest（PWA 800/shared 520/Editor 223）、12 项 Chromium 组件测试和两端强制构建通过；Vitest/组件/构建未复用缓存，最后类型检查复用三包缓存。最初旧 `.next/types` 导致类型失败，保留旧生成目录后重生成通过；没有修改类型定义规避错误。实际新阅读器直接 HTML 60 次导航、三语各 3 次 SW 断网冷启动/多图详情刷新均通过，0 pageErrors。真实源码下载按钮/provider 配合本地跨 origin HTTP fixture，验证损坏图片、HTTP/CORS 失败 4/5、重试复用成功项并完成 5/5、同数版本更新失败保留旧快照/重试清理旧图片，以及每次成功后的三语断网阅读，0 pageErrors/外连。严格 SW 检查首轮因遗漏本地版本读取 fixture 失败，仅补明确测试岩场的版本响应后重跑通过；没有过滤页面错误。
+
+同一内容构建的真实双端密码登录/权限/Beta `--auth-only` 再次通过；随机 Mongo 测试库和应用进程已清理。新建岩场、完整后台内容发布、跨标签页和 Safari 不在该模式验收范围。React HostComponent 挂起后的 replay 在旧 vendored React 中没有恢复 hydration cursor，新 Next 包含[官方恢复修复](https://github.com/react/react/pull/35494)；源码机制与复现相符，浏览器回归给出有限范围的零错误证据，不承诺不存在其他渲染问题。

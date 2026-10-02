@@ -4,7 +4,10 @@ import { deflateSync } from 'node:zlib'
 import { chromium } from '@playwright/test'
 
 const base = process.env.OFFLINE_SMOKE_URL ?? 'http://localhost:4100'
-assert(['localhost', '127.0.0.1'].includes(new URL(base).hostname), 'Only a local fixture server is permitted')
+const application = new URL(base)
+assert(['localhost', '127.0.0.1'].includes(application.hostname) && application.protocol === 'http:' && !application.username && !application.password, 'Only a local HTTP fixture server is permitted')
+const repeats = Number(process.env.OFFLINE_READER_REPEAT_COUNT ?? 3)
+assert(Number.isInteger(repeats) && repeats >= 1 && repeats <= 10, 'Reader repeats must be between 1 and 10')
 function png() {
   const crc = bytes => {
     let value = 0xffffffff
@@ -23,14 +26,22 @@ function png() {
 }
 const browser = await chromium.launch({ headless: true })
 const context = await browser.newContext({ serviceWorkers: 'allow' })
-const errors = []
+const errors = [], unexpected = [], blockedPrefetches = []
 let phase = 'install'
 context.on('page', page => page.on('pageerror', error => errors.push({ message: error.message, url: page.url(), phase })))
 await context.route('**/*', async route => {
-  const url = new URL(route.request().url())
-  if (url.origin !== new URL(base).origin) return route.abort()
-  if (url.pathname.startsWith('/api/')) return route.fulfill({ json: { success: true, cities: [], prefectures: [] } })
-  return route.continue()
+  const request = route.request(), url = new URL(request.url())
+  if (url.origin !== application.origin || request.method() !== 'GET') { unexpected.push(`${request.method()} ${url.href}`); return route.abort() }
+  if (url.pathname === '/api/cities') return route.fulfill({ json: { success: true, cities: [], prefectures: [] } })
+  if (url.pathname === '/api/geo') return route.fulfill({ json: {} })
+  if (url.pathname === '/api/crags/offline-fixture/version') return route.fulfill({ json: { success: true, revision: 'fixture-revision', routeCount: 3 } })
+  if (/^\/(zh|en|fr)(?:\/(route|profile))?$/.test(url.pathname) && request.headers().rsc === '1') {
+    blockedPrefetches.push(url.pathname)
+    return route.fulfill({ status: 503, json: { error: 'SSR prefetch is outside this isolated offline fixture' } })
+  }
+  if (/^\/(zh|en|fr)\/offline$/.test(url.pathname) || url.pathname.startsWith('/_next/static/') || url.pathname.startsWith('/icons/') || ['/sw.js', '/favicon.ico', '/manifest.json', '/apple-touch-icon.png'].includes(url.pathname)) return route.continue()
+  unexpected.push(`${request.method()} ${url.href}`)
+  return route.abort()
 })
 try {
   const initial = await context.newPage()
@@ -70,10 +81,12 @@ try {
   }, png())
   await initial.close()
   await context.setOffline(true)
-  for (const [locale, backLabel] of [['zh', '返回'], ['en', 'Back'], ['fr', 'Retour']]) {
+  for (const [locale, backLabel] of Array.from({ length: repeats }, () => [['zh', '返回'], ['en', 'Back'], ['fr', 'Retour']]).flat()) {
     phase = `${locale}-cold-start`
     const cold = await context.newPage()
-    await cold.goto(`${base}/${locale}/offline?offlineCrag=offline-fixture`, { waitUntil: 'domcontentloaded' })
+    const response = await cold.goto(`${base}/${locale}/offline?offlineCrag=offline-fixture`, { waitUntil: 'domcontentloaded' })
+    assert((await response.headerValue('content-type'))?.startsWith('text/html'), 'Offline navigation must return HTML, never RSC')
+    assert.equal(await cold.evaluate(() => navigator.onLine), false)
     await cold.getByRole('heading', { name: '离线测试岩场', exact: true, level: 1 }).waitFor()
     assert.equal(await cold.evaluate(() => localStorage.getItem('preferred-locale')), null)
     assert.equal(new URL(cold.url()).pathname, `/${locale}/offline`)
@@ -97,10 +110,13 @@ try {
       }
       await cold.getByRole('button', { name: backLabel, exact: true }).click()
     }
+    await cold.waitForTimeout(250)
+    assert.deepEqual(errors, [], 'Every page error fails the offline regression')
     await cold.close()
   }
   assert.deepEqual(errors, [])
-  console.log(JSON.stringify({ passed: true, ...installed, offlineColdStart: true, withoutLocalePreference: true, locales: ['zh', 'en', 'fr'], pageErrors: errors.length, reloadDetail: true, legacyFaceMultiTopo: true, productionServicesUsed: false, scope: 'Native IDB/Cache fixture + actual production PWA reader/SW; server snapshot/downloader covered separately by unit tests.' }))
+  assert.deepEqual(unexpected, [], 'No external request or database-backed route is permitted')
+  console.log(JSON.stringify({ passed: true, ...installed, offlineColdStart: true, withoutLocalePreference: true, locales: ['zh', 'en', 'fr'], repeats, pageErrors: errors.length, externalRequests: 0, blockedSSRPrefetches: blockedPrefetches.length, reloadDetail: true, legacyFaceMultiTopo: true, productionServicesUsed: false, scope: 'Native IDB/Cache fixture + actual production PWA reader/SW; server snapshot/downloader covered separately by unit tests.' }))
 } catch (error) {
   const page = context.pages().at(-1)
   if (page) console.log('Failure state:', page.url(), await page.locator('body').innerText(), errors)

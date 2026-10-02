@@ -1,6 +1,6 @@
 # 用户端、Topo 与缓存数据流
 
-> 核对日期：2026-09-20。用户端是后台内容的消费端；修改后台时需要检查这里的兼容性。
+> 核对日期：2026-10-02。用户端是后台内容的消费端；修改后台时需要检查这里的兼容性。
 
 ## 用户端范围
 
@@ -64,6 +64,10 @@
 - 删除入口统一清理快照、图片和元数据；旧版本/删除后的图片清理任务保存在 IndexedDB，失败保留待重试任务。两个独立存储不构成跨标签页事务；并发下载/删除仍需后续验收。
 - 同标签页每岩场的下载/删除串行，删除取消进行中和已排队下载；网络与解码请求有超时，迟到响应不能发布被取消快照。旧标签页阻塞 IDB 升级时明确反馈，释放失败单例供重试；版本变化关闭旧连接。离线指示条使用原生链接进入本地资料壳。
 - `next.config.ts` 在开发环境关闭 Service Worker；普通 `pnpm dev` 不能验收生产离线效果。
+
+离线下载使用浏览器可读的跨域 `fetch`，图片能在 `<img>` 中显示并不证明它可下载到 Cache API。2026-10-02 实查发现生产 R2 bucket 没有 CORS，已配置 GET/HEAD 规则：origins 为 `https://bouldering.top`、`https://www.bouldering.top`、`https://editor.bouldering.top`、`http://localhost:3000`、`http://localhost:3001`；允许请求 headers `*`、暴露 `ETag`、preflight 缓存 3600 秒。没有修改图片或数据库。
+
+配置后在 www、editor、localhost:3000 三个浏览器 origin 对同一现有公开图片执行实际 CORS GET、解码、Cache API 保存及断网解码，全部成功，图片响应未 mock。这只验证采样图片和这些 origin；整包下载、其他缓存变体和 Safari 仍以各自业务验收为准。自定义域名的旧缓存可能需要清理后获得新的 CORS headers，参见 [Cloudflare R2 CORS 文档](https://developers.cloudflare.com/r2/buckets/cors/)。
 
 ## 天气与语言
 
