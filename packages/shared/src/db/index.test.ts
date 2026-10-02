@@ -11,6 +11,7 @@ const mockInsertOne = vi.fn()
 const mockFindOne = vi.fn()
 const mockFindOneAndUpdate = vi.fn()
 const mockDeleteOne = vi.fn()
+const mockDeleteMany = vi.fn()
 const mockUpdateOne = vi.fn()
 const mockCountDocuments = vi.fn()
 const mockCreateIndex = vi.fn()
@@ -26,6 +27,7 @@ const mockCollection = vi.fn(() => ({
   insertOne: mockInsertOne,
   findOneAndUpdate: mockFindOneAndUpdate,
   deleteOne: mockDeleteOne,
+  deleteMany: mockDeleteMany,
   updateOne: mockUpdateOne,
   countDocuments: mockCountDocuments,
   createIndex: mockCreateIndex,
@@ -92,6 +94,7 @@ beforeEach(() => {
     insertOne: mockInsertOne,
     findOneAndUpdate: mockFindOneAndUpdate,
     deleteOne: mockDeleteOne,
+    deleteMany: mockDeleteMany,
     updateOne: mockUpdateOne,
     countDocuments: mockCountDocuments,
     createIndex: mockCreateIndex,
@@ -212,6 +215,8 @@ describe('Route operations', () => {
   })
 
   it('createRoute should auto-increment id', async () => {
+    mockFindOne.mockResolvedValue(null)
+    mockFindOneAndUpdate.mockResolvedValue({ _id: 'route-id', seq: 101 })
     mockToArray.mockResolvedValue([{ _id: 100 }])
     mockInsertOne.mockResolvedValue({ insertedId: 101 })
     const route = await createRoute({ name: '新线路', grade: 'V5', cragId: 'crag-1', area: '区域1' })
@@ -219,6 +224,8 @@ describe('Route operations', () => {
   })
 
   it('createRoute should use id 1 when collection is empty', async () => {
+    mockFindOne.mockResolvedValue(null)
+    mockFindOneAndUpdate.mockResolvedValue({ _id: 'route-id', seq: 1 })
     mockToArray.mockResolvedValue([])
     mockInsertOne.mockResolvedValue({ insertedId: 1 })
     const route = await createRoute({ name: '首条线路', grade: 'V0', cragId: 'crag-1', area: '区域1' })
@@ -236,6 +243,15 @@ describe('Route operations', () => {
   it('updateRoute should return null when not found', async () => {
     mockFindOneAndUpdate.mockResolvedValue(null)
     expect(await updateRoute(999, { grade: 'V5' })).toBeNull()
+  })
+
+  it('updateRoute truly unsets all compatibility fields for an empty annotation array', async () => {
+    mockFindOneAndUpdate.mockResolvedValue({ ...ROUTE_DOC, topoAnnotations: [] })
+    await updateRoute(42, { topoAnnotations: [] })
+    expect(mockFindOneAndUpdate).toHaveBeenCalledWith({ _id: 42 }, {
+      $set: { topoAnnotations: [], updatedAt: expect.any(Date) },
+      $unset: { faceId: '', faceArea: '', topoLine: '', topoTension: '' },
+    }, { returnDocument: 'after' })
   })
 
   it('deleteRoute should return true when deleted', async () => {
@@ -373,22 +389,28 @@ describe('CragPermission operations', () => {
     expect(mockFind).toHaveBeenCalledWith({ userId: 'user-1' })
   })
 
-  it('createCragPermission should insert and return permission', async () => {
-    mockInsertOne.mockResolvedValue({ insertedId: 'auto' })
+  it('createCragPermission should upsert with a stable ID and return permission', async () => {
+    mockUpdateOne.mockResolvedValue({ upsertedCount: 1 })
     const perm = await createCragPermission({ userId: 'u1', cragId: 'c1', role: 'manager', assignedBy: 'admin' })
     expect(perm.userId).toBe('u1')
     expect(perm.createdAt).toBeInstanceOf(Date)
-    expect(mockInsertOne).toHaveBeenCalled()
+    expect(mockUpdateOne).toHaveBeenCalledWith(
+      { userId: 'u1', cragId: 'c1' },
+      { $setOnInsert: expect.objectContaining({ _id: 'crag-grant:u1:c1', userId: 'u1', cragId: 'c1' }) },
+      { upsert: true }
+    )
+    expect(mockInsertOne).not.toHaveBeenCalled()
   })
 
   it('deleteCragPermission should return true when deleted', async () => {
-    mockDeleteOne.mockResolvedValue({ deletedCount: 1 })
+    mockDeleteMany.mockResolvedValue({ deletedCount: 3 })
     expect(await deleteCragPermission('u1', 'c1')).toBe(true)
-    expect(mockDeleteOne).toHaveBeenCalledWith({ userId: 'u1', cragId: 'c1' })
+    expect(mockDeleteMany).toHaveBeenCalledWith({ userId: 'u1', cragId: 'c1' })
+    expect(mockDeleteOne).not.toHaveBeenCalled()
   })
 
   it('deleteCragPermission should return false when not found', async () => {
-    mockDeleteOne.mockResolvedValue({ deletedCount: 0 })
+    mockDeleteMany.mockResolvedValue({ deletedCount: 0 })
     expect(await deleteCragPermission('x', 'y')).toBe(false)
   })
 

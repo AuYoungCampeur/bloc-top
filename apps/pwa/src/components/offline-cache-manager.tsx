@@ -145,6 +145,7 @@ function OfflineCacheDrawer({ isOpen, onClose, offlineCragsMeta }: OfflineCacheD
       setLocalCrags((prev) => prev.filter((c) => c.id !== cragId))
       setTimeout(() => setDeletedId(null), 1500)
     } catch (error) {
+      window.alert(t('deleteFailed'))
       console.error('Failed to delete offline crag:', error)
     } finally {
       setDeletingId(null)

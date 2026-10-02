@@ -1,5 +1,6 @@
 import { getTopoImageUrl, getFaceTopoUrl } from '@bloctop/shared/constants'
 import type { FaceKey, ImageSource } from './types'
+import { getFaceIdentityKey, getPrimaryFaceIdentity } from '@bloctop/shared/face-references'
 
 /**
  * 统一岩面图片缓存服务
@@ -30,14 +31,13 @@ export class FaceImageCacheService {
   static getFaceKey(source: ImageSource): FaceKey | null {
     if ('id' in source) {
       // Route 对象
-      if (source.faceId && source.area) {
-        return `${source.cragId}/${source.area}/${source.faceId}`
-      }
+      const face = getPrimaryFaceIdentity(source)
+      if (face) return getFaceIdentityKey(face)
       // Legacy: 无 faceId 的线路，使用线路名称
       return `${source.cragId}/${source.name}`
     }
     // FaceImageSource
-    return `${source.cragId}/${source.area}/${source.faceId}`
+    return getFaceIdentityKey(source)
   }
 
   /**

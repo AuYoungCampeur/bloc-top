@@ -22,10 +22,10 @@ const LOCALE_DETECTED_KEY = 'locale-detected'
  */
 function getCachedLocale(): Locale | null {
   if (typeof window === 'undefined') return null
-  const cached = localStorage.getItem(LOCALE_CACHE_KEY)
-  if (cached === 'zh' || cached === 'en' || cached === 'fr') {
-    return cached
-  }
+  try {
+    const cached = localStorage.getItem(LOCALE_CACHE_KEY)
+    if (cached === 'zh' || cached === 'en' || cached === 'fr') return cached
+  } catch { /* Storage preferences are optional. */ }
   return null
 }
 
@@ -34,7 +34,7 @@ function getCachedLocale(): Locale | null {
  */
 function setCachedLocale(locale: Locale): void {
   if (typeof window === 'undefined') return
-  localStorage.setItem(LOCALE_CACHE_KEY, locale)
+  try { localStorage.setItem(LOCALE_CACHE_KEY, locale) } catch { /* Continue navigation without persistence. */ }
 }
 
 /**
@@ -42,7 +42,7 @@ function setCachedLocale(locale: Locale): void {
  */
 function isDetected(): boolean {
   if (typeof window === 'undefined') return false
-  return sessionStorage.getItem(LOCALE_DETECTED_KEY) === 'true'
+  try { return sessionStorage.getItem(LOCALE_DETECTED_KEY) === 'true' } catch { return false }
 }
 
 /**
@@ -50,7 +50,7 @@ function isDetected(): boolean {
  */
 function markDetected(): void {
   if (typeof window === 'undefined') return
-  sessionStorage.setItem(LOCALE_DETECTED_KEY, 'true')
+  try { sessionStorage.setItem(LOCALE_DETECTED_KEY, 'true') } catch { /* Detection still works for this mount. */ }
 }
 
 /**
@@ -91,14 +91,15 @@ export function useLocalePreference() {
   const router = useRouter()
   const pathname = usePathname()
   const detectingRef = useRef(false)
+  const hrefWithQuery = useCallback(() => `${pathname}${window.location.search}${window.location.hash}`, [pathname])
 
   /**
    * 切换语言并更新缓存
    */
   const switchLocale = useCallback((newLocale: Locale) => {
     setCachedLocale(newLocale)
-    router.replace(pathname, { locale: newLocale })
-  }, [router, pathname])
+    router.replace(hrefWithQuery(), { locale: newLocale })
+  }, [router, hrefWithQuery])
 
   /**
    * 首次加载时检测语言偏好
@@ -109,6 +110,9 @@ export function useLocalePreference() {
       return
     }
 
+    // A cold offline navigation must keep its cached shell and local detail parameters.
+    if (!navigator.onLine) { markDetected(); return }
+
     // 检查缓存
     const cachedLocale = getCachedLocale()
 
@@ -116,7 +120,7 @@ export function useLocalePreference() {
       // 有缓存，使用缓存的语言
       markDetected()
       if (cachedLocale !== currentLocale) {
-        router.replace(pathname, { locale: cachedLocale })
+        router.replace(hrefWithQuery(), { locale: cachedLocale })
       }
       return
     }
@@ -128,16 +132,17 @@ export function useLocalePreference() {
     detectingRef.current = true
 
     // 无缓存，需要通过 IP 检测
+    let active = true
     detectLocaleByIP().then((detectedLocale) => {
+      if (!active || !navigator.onLine) return
       markDetected()
       setCachedLocale(detectedLocale)
-      detectingRef.current = false
-
       if (detectedLocale !== currentLocale) {
-        router.replace(pathname, { locale: detectedLocale })
+        router.replace(hrefWithQuery(), { locale: detectedLocale })
       }
-    })
-  }, [currentLocale, router, pathname])
+    }).finally(() => { if (active) detectingRef.current = false })
+    return () => { active = false; detectingRef.current = false }
+  }, [currentLocale, router, hrefWithQuery])
 
   return {
     /** 当前语言 */

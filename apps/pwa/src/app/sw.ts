@@ -45,7 +45,7 @@ class OfflineFirstImageStrategy extends Strategy {
     const offlineCache = await caches.open(OFFLINE_CACHE.CACHE_NAME);
     const offlineResponse = await offlineCache.match(request);
 
-    if (offlineResponse) {
+    if (offlineResponse && (offlineResponse.type !== "opaque" || request.mode === "no-cors")) {
       return offlineResponse;
     }
 
@@ -53,6 +53,12 @@ class OfflineFirstImageStrategy extends Strategy {
     return this.cacheFirst.handle({ request, event: handler.event });
   }
 }
+
+// The downloader owns verification and publication. Never persist unverified revision media in runtime caches.
+const offlineMediaDownload: RuntimeCaching = {
+  matcher: ({ url }) => url.hostname === "img.bouldering.top" && url.searchParams.has("offlineRevision"),
+  handler: new NetworkOnly({ fetchOptions: { cache: "no-store" } }),
+};
 
 // R2 图片缓存策略 - 先检查离线缓存，再使用 CacheFirst
 const r2ImageCache: RuntimeCaching = {
@@ -79,7 +85,7 @@ class NextImageOfflineStrategy extends Strategy {
     });
   }
 
-  async _handle(request: Request, _handler: StrategyHandler): Promise<Response> {
+  async _handle(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const originalUrl = url.searchParams.get("url");
 
@@ -89,7 +95,7 @@ class NextImageOfflineStrategy extends Strategy {
       const offlineCache = await caches.open(OFFLINE_CACHE.CACHE_NAME);
       const offlineResponse = await offlineCache.match(originalUrl);
 
-      if (offlineResponse) {
+      if (offlineResponse?.ok && offlineResponse.type !== "opaque") {
         // 离线缓存命中，直接返回原始图片
         // 注意：这绕过了 Next.js 的图片优化，但在离线时这是可接受的
         return offlineResponse;
@@ -160,7 +166,7 @@ const serwist = new Serwist({
   // 2. htmlCache 处理页面
   // 3. r2ImageCache/nextImageCache 处理图片
   // 4. defaultCache 处理其他资源
-  runtimeCaching: [apiCache, networkOnlyApi, htmlCache, r2ImageCache, nextImageCache, ...defaultCache],
+  runtimeCaching: [apiCache, networkOnlyApi, htmlCache, offlineMediaDownload, r2ImageCache, nextImageCache, ...defaultCache],
   // 离线 fallback 配置 - 当导航失败时显示对应语言的离线页面
   fallbacks: {
     entries: [

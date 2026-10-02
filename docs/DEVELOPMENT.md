@@ -105,6 +105,10 @@ pnpm --filter @bloctop/editor exec next start -p 3001
 
 部署相关联动：域名与 HTTPS、Cookie 共享、可信 origins、Passkey RP ID、R2 图片域名与 CORS、两端一致的重验证密钥、Editor 到 PWA webhook 的可达性。
 
+新建岩场采用 MongoDB transaction，需要 replica set 或 mongos；普通 standalone 开发库不能验证此流程。R2 上传默认 create-only，覆盖需要 checkOnly 得到的 ETag；API 的 partial 响应可能表示引用已变或图片写入状态不确定，重试前刷新核对。
+
+离线浏览器回归可在无凭据 PWA 生产构建、本地 4100 服务上执行 `pnpm --filter @bloctop/pwa exec node scripts/offline-sw-smoke.mjs`。脚本只接受 localhost/127.0.0.1，使用本地 IndexedDB/Cache fixture 和真实 SW/页面，关闭外部请求；它验证冷启动、刷新和新旧多图阅读，不验证真实下载接口、R2 或 Safari。服务器快照/下载流程另由隔离单元测试覆盖。
+
 ## 6. 数据维护脚本不是初始化捷径
 
 大部分维护脚本在 `apps/pwa/scripts/`，不是根 `scripts/`；根目录还保留 `import-routes.ts`。

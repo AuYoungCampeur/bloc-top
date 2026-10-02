@@ -70,6 +70,7 @@ export interface Route {
   cragId: string
   area: string
   faceId?: string // 岩面 ID，同一 faceId 的线路共享图片
+  faceArea?: string // 兼容单图区域；新数组的第一条标注区域优先
   setter?: string
   FA?: string
   description?: string
@@ -103,6 +104,7 @@ export interface CragCredit {
 
 // 岩场数据类型
 export interface Crag {
+  mediaRevision?: string // 图片/引用更新版本；旧数据可缺省
   id: string
   name: string
   cityId: string              // 所属城市 ID (如 'luoyuan', 'xiamen')

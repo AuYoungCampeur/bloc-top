@@ -10,7 +10,7 @@
  */
 
 import { useSyncExternalStore, useCallback } from 'react'
-import { isOfflineAvailable, getMeta, META_STORAGE_KEY, type OfflineCragsMeta } from '@/lib/offline-storage'
+import { isOfflineAvailable, getMeta, META_STORAGE_KEY, OFFLINE_META_EVENT, type OfflineCragsMeta } from '@/lib/offline-storage'
 
 // ==================== 网络状态监听 ====================
 
@@ -62,7 +62,11 @@ function subscribeToOfflineMeta(callback: () => void) {
     }
   }
   window.addEventListener('storage', handleStorage)
-  return () => window.removeEventListener('storage', handleStorage)
+  window.addEventListener(OFFLINE_META_EVENT, callback)
+  return () => {
+    window.removeEventListener('storage', handleStorage)
+    window.removeEventListener(OFFLINE_META_EVENT, callback)
+  }
 }
 
 /**
@@ -75,7 +79,8 @@ function getOfflineMetaSnapshot(): OfflineCragsMeta {
     return emptyMeta
   }
 
-  const currentJson = localStorage.getItem(META_STORAGE_KEY)
+  const current = getMeta()
+  const currentJson = JSON.stringify(current)
 
   // 如果 JSON 字符串没变，返回缓存的对象（引用不变）
   if (currentJson === cachedMetaJson) {
@@ -84,7 +89,7 @@ function getOfflineMetaSnapshot(): OfflineCragsMeta {
 
   // JSON 变化了，解析并缓存新对象
   cachedMetaJson = currentJson
-  cachedMeta = getMeta()
+  cachedMeta = current
   return cachedMeta
 }
 

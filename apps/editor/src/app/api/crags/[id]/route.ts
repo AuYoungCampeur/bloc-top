@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCragById, updateCrag } from '@bloctop/shared/db'
+import { getCragById, updateCrag, getAllCities } from '@bloctop/shared/db'
 import { requireAuth } from '@/lib/require-auth'
 import { canEditCrag } from '@bloctop/shared/permissions'
 import { createModuleLogger } from '@bloctop/shared/logger'
 import { revalidateCragPages } from '@/lib/revalidate-pwa'
+import { validateCragInput } from '@/lib/crag-validation'
 
 const log = createModuleLogger('API:Crag')
 
@@ -62,18 +63,16 @@ export async function PATCH(
 
   try {
 
-    const body = await request.json()
-    const allowedFields = ['name', 'cityId', 'location', 'description', 'approach', 'coordinates', 'coverImages']
-    const updates: Record<string, unknown> = {}
-    for (const field of allowedFields) {
-      if (field in body) updates[field] = body[field]
-    }
-
-    if (Object.keys(updates).length === 0) {
+    const body = await request.json().catch(() => null)
+    const { fields: updates, errors } = validateCragInput(body, 'patch')
+    if (Object.keys(errors).length) {
       return NextResponse.json(
-        { success: false, error: '没有可更新的字段' },
+        { success: false, error: Object.values(errors)[0], fieldErrors: errors },
         { status: 400 }
       )
+    }
+    if ('cityId' in updates && !(await getAllCities()).some(city => city.id === updates.cityId)) {
+      return NextResponse.json({ success: false, error: '所属城市不存在' }, { status: 400 })
     }
 
     const crag = await updateCrag(id, updates)

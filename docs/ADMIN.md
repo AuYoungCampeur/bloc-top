@@ -16,7 +16,7 @@
 | --- | --- | --- |
 | `/` | 功能入口卡片；用户/城市入口对 admin 展示 | `src/app/page.tsx` |
 | `/crags` | 按权限显示岩场列表和新建入口 | `src/app/crags/page.tsx` |
-| `/crags/new` | 新建岩场表单；**当前工作区未跟踪，不能当作已提交功能** | `src/app/crags/new/page.tsx` |
+| `/crags/new` | admin 新建岩场；字段校验、失败后保留输入、创建后进入详情 | `src/app/crags/new/page.tsx` |
 | `/crags/[id]` | 岩场信息、坐标、接近说明与管理员面板 | `src/app/crags/[id]/page.tsx` |
 | `/faces` | 按岩场/区域管理照片，上传、覆盖、改名、删除 | `src/app/faces/page.tsx` |
 | `/routes` | 线路列表、创建/编辑/删除、Topo 多图标注、Beta 标签页、内嵌岩面上传 | `src/app/routes/page.tsx` |
@@ -58,9 +58,17 @@
 
 ### 管理岩面
 
-岩面列表来自 R2 对象，不是单独的数据库实体。上传使用 `FormData`，服务端校验岩场权限，再以 `cragId/area/faceId.jpg` 写入 R2。大图压缩在客户端按需动态导入。
+岩面列表来自 R2 对象，不是单独的数据库实体。上传使用 `FormData`，服务端校验岩场权限和存在性，再以 `cragId/area/faceId.jpg` 写入 R2。大图压缩在客户端按需动态导入。检查失败不会直接尝试上传；确认覆盖必须携带检查时的 ETag，目标或文件变化需重新确认，冲突返回 409。
 
-改名先复制 R2 对象，再删除旧对象并更新线路引用；删除图片后清理关联旧字段。当前这些操作对多图数组的同步不完整，见下方接手事项。数据库与对象存储之间没有事务保证。
+两端复用共享 `face-api` / `face-management`。改名先条件复制新图，再改所有匹配标注与兼容字段，最后清旧图；删除先清引用再删图。以完整岩场+区域+岩面匹配，保留其他标注。成功响应返回服务端 Topo 字段，后台合并时保留当前 Beta 和文字。
+
+服务可能返回 `partial`、`cleanupPending`、`revisionPending` 或 `imageChangeUnknown`；页面显示警告并提供刷新核对，失败不保证全部回滚。引用写入保护自身快照，但晚到的旧线路保存及 HEAD→Delete 竞态仍未解决；不能把条件上传当作跨数据库/对象存储事务。
+
+### 新建岩场与上下文
+
+`/crags/new` 和 POST 都验证 ID、城市及坐标等字段。POST 仅 admin 可用，岩场和创建者 manager 授权在同一 MongoDB transaction 中写入；相同创建者/初始字段重试返回已有岩场，其他 ID 占用返回 409。创建失败保留表单。
+
+岩场详情的岩面/线路入口带 `cragId` 参数，刷新保持目标；无权或不存在的目标显示错误，不悄悄改成第一个岩场。授权名单仅 admin 读取和管理，manager 的详情不会发送名单请求或把 403 当空名单。创建者回退查询使用 Mongo `_id`，入口/列表只包含实际存在的岩场。
 
 ### 管理 Beta
 
@@ -95,13 +103,13 @@
 | 顺序 | 已观察到的事实 | 后续工作与验收目标 |
 | --- | --- | --- |
 | 1 | 2026-10-02 共用环境认证配置，localhost Cookie/session 隔离存储集成测试通过 | 仍需验收真实邮箱、Passkey 设备和后台权限；独立 Preview 跨域登录及 alias Passkey 未完成 |
-| 2 | 两端 `api/faces/route.ts` 改名/删除只更新顶层 `faceId`/`topoLine`，匹配也没有 `area`；上传的清标注逻辑仍使用旧字段 | 同步处理 `topoAnnotations` 与旧字段；用同岩场不同区域同名岩面、多视角线路验证不串改、不留失效引用 |
+| 2 | 共用三元身份与多图引用变换、条件上传和准确部分失败响应；针对跨区域同名和多图有回归 | 仍需隔离真实 R2 验收；补旧线路保存的版本冲突和跨服务崩溃恢复 |
 | 3 | 2026-10-02 两端复用 shared `createBetaHandlers`，提交认证、原子去重和缺失记录处理已统一 | 保留业务回归，后续完善发布通知与完整用户提交验收 |
-| 4 | `revalidate-pwa.ts` 只记录失败，多处调用没有等待；Beta/上传没有完整刷新通知；共享 `revalidate-helpers.ts` 不包含线路列表 | 梳理每个写入对应哪些缓存；验证后台保存后 PWA 新请求与已打开页面的可见性 |
+| 4 | `revalidate-pwa.ts` 只记录失败，部分调用没有等待；face handler 现已等待通知，但共享路径帮助仍不含完整线路列表 | 梳理每个写入对应哪些缓存；补有限时长与可恢复通知，验收 PWA 新请求、已打开页面和其他客户端图片可见性 |
 | 5 | Editor 已声明 `browser-image-compression`，根 frozen install 可恢复工作区依赖链接 | 仍需在隔离 bucket 验收大于 5 MB 图片上传和压缩失败恢复 |
-| 6 | `permissions.ts` 的 createdBy 回退查询使用 `{ id: cragId }`，而 DB 使用 `_id`；后台入口与列表仅看授权记录 | 明确 createdBy 回退是否仍需要，使编辑/入口/列表的权限语义一致 |
+| 6 | createdBy 回退已改用 `_id`，入口/列表包含创建者并过滤遗留孤儿授权；分配授权验证目标用户/岩场存在 | 仍需角色变更与旧迁移数据实测；名单政策保持 admin-only |
 | 7 | `migrate-crag-ownership.ts` 仍写入 `role: 'creator'`，当前类型只接受 manager | 先核实实际数据与迁移意图，再修订脚本；不要直接运行旧迁移 |
-| 8 | 多图 dirty check 已包含 area，Beta 独立更新保留 Topo 草稿，保存采用服务端基线 | 继续验证慢保存/并发操作；旧字段缺独立图片区域的问题需随引用一致性处理 |
+| 8 | 多图 dirty check 包含 area，Beta 独立更新保留 Topo 草稿；兼容字段增加 `faceArea` | 继续验证慢保存/并发操作；Topo 版本条件协议尚未实现 |
 
 源码入口：[权限函数](../packages/shared/src/permissions.ts)、[岩面 API](../apps/editor/src/app/api/faces/route.ts)、[上传 API](../apps/editor/src/app/api/upload/route.ts)、[后台 Beta API](../apps/editor/src/app/api/beta/route.ts)、[PWA Beta API](../apps/pwa/src/app/api/beta/route.ts)、[旧授权迁移脚本](../apps/pwa/scripts/migrate-crag-ownership.ts)。
 
@@ -109,11 +117,13 @@
 
 ## 7. 当前工作区与验证基线
 
-本轮开始前已有以下内容，本轮保留未改：
+2026-09-20 接手时主工作区已有以下内容，原文件一直保留未改：
 
 - `.serena/project.yml` 有修改。
 - `apps/editor/src/app/crags/new/` 为未跟踪目录，含页面与测试。
 - `apps/editor/src/components/editor/crag-permissions-panel.test.tsx` 为未跟踪测试。
+
+2026-10-02 的下一批内容开发在独立 worktree 中评审、完善了新建页和权限面板测试副本，主工作区原文件不受影响。当前源码功能和发布状态分别以本指南与 [PRODUCT.md](PRODUCT.md) 为准；以下为历史验证基线。
 
 2026-09-20 本机运行（Node 22.22.0，pnpm 10.29.3；仓库 `.nvmrc` 为 20）：
 

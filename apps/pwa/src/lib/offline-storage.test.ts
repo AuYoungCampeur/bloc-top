@@ -1,9 +1,10 @@
 /**
  * 离线存储层单元测试
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import 'fake-indexeddb/auto'
 import type { Crag, Route } from '@/types'
+import { getCragCoverUrl } from '@/lib/constants'
 import {
   openDB,
   saveCragOffline,
@@ -117,6 +118,30 @@ describe('offline-storage', () => {
       expect(meta.crags['test-crag'].routeCount).toBe(3)
     })
 
+    it('does not publish a successful request if its transaction subsequently aborts', async () => {
+      await saveCragOffline(mockOfflineData)
+      const db = await openDB()
+      const original = db.transaction.bind(db)
+      const spy = vi.spyOn(db, 'transaction').mockImplementation((...args: Parameters<IDBDatabase['transaction']>) => {
+        const tx = original(...args)
+        if (args[1] === 'readwrite') {
+          const store = tx.objectStore('crags')
+          const put = store.put.bind(store)
+          vi.spyOn(store, 'put').mockImplementation((...putArgs: Parameters<IDBObjectStore['put']>) => {
+            const request = put(...putArgs)
+            request.addEventListener('success', () => tx.abort())
+            return request
+          })
+          vi.spyOn(tx, 'objectStore').mockReturnValue(store)
+        }
+        return tx
+      })
+      await expect(saveCragOffline({ ...mockOfflineData, version: 'failed-update' })).rejects.toThrow('aborted')
+      spy.mockRestore()
+      expect((await getCragOffline('test-crag'))?.version).toBe(mockOfflineData.version)
+      expect(getMeta().crags['test-crag'].downloadedAt).toBe(mockOfflineData.downloadedAt)
+    })
+
     it('getCragOffline should return null for non-existent crag', async () => {
       const result = await getCragOffline('non-existent')
       expect(result).toBeNull()
@@ -209,8 +234,8 @@ describe('offline-storage', () => {
       const urls = collectImageUrls(mockCrag, mockRoutes)
 
       // 封面图片
-      expect(urls).toContain('https://example.com/cover1.jpg')
-      expect(urls).toContain('https://example.com/cover2.jpg')
+      expect(urls).toContain(getCragCoverUrl('test-crag', 0))
+      expect(urls).toContain(getCragCoverUrl('test-crag', 1))
 
       // 线路 TOPO 图 - 所有线路都会生成 URL（使用 getRouteTopoUrl）
       // 格式: https://img.bouldering.top/{cragId}/{routeName}.jpg?v=1

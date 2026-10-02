@@ -1,8 +1,9 @@
 import { cookies } from 'next/headers'
+import { notFound } from 'next/navigation'
 import {
   getCragsByCityId, getRoutesByCityId,
   getCragsByPrefectureId, getRoutesByPrefectureId,
-  getAllCities, getAllPrefectures,
+  getAllCities, getAllPrefectures, getCragById,
 } from '@/lib/db'
 import { isCityValid, DEFAULT_CITY_ID, CITY_COOKIE_NAME, parseCitySelection, findCityByAdcode } from '@/lib/city-utils'
 import RouteListClient from './route-client'
@@ -20,7 +21,9 @@ export const revalidate = 2592000 // 30 天 (秒)
  * 因为 RouteListClient 内部使用了 useSearchParams，
  * 如果被 Suspense 包裹，每次 URL 参数变化都会触发 fallback 显示，导致闪烁。
  */
-export default async function RouteListPage() {
+export default async function RouteListPage({ searchParams }: {
+  searchParams: Promise<{ crag?: string | string[]; city?: string | string[] }>
+}) {
   // The city choice belongs to this request; do not query data during the build.
   const cookieStore = await cookies()
   const [cities, prefectures] = await Promise.all([
@@ -52,6 +55,18 @@ export default async function RouteListPage() {
     }
   }
 
+  // Deep links determine their data scope independently of the visitor's cookie.
+  const query = await searchParams
+  if (query.crag) {
+    if (typeof query.crag !== 'string') notFound()
+    const crag = await getCragById(query.crag)
+    if (!crag) notFound()
+    selection = { type: 'city', id: crag.cityId }
+  } else if (query.city) {
+    if (typeof query.city !== 'string' || !isCityValid(cities, query.city)) notFound()
+    selection = { type: 'city', id: query.city }
+  }
+
   // 根据选择类型分支查询
   let crags, routes
   if (selection.type === 'prefecture') {
@@ -66,5 +81,5 @@ export default async function RouteListPage() {
     ])
   }
 
-  return <RouteListClient routes={routes} crags={crags} />
+  return <RouteListClient routes={routes} crags={crags} contextCityId={selection.type === 'city' ? selection.id : undefined} />
 }

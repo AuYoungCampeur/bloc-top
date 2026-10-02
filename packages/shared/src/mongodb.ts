@@ -16,6 +16,22 @@ declare global {
 
 let _prodClientPromise: Promise<MongoClient> | null = null
 
+function connectClient(development: boolean): Promise<MongoClient> {
+  const client = new MongoClient(requireEnv('MONGODB_URI'), options)
+  const pending = client.connect().catch(async error => {
+    // A transient initial failure must not poison every later server request.
+    // Do not clear a newer connection installed by another HMR module.
+    if (development) {
+      if (global._mongoClientPromise === pending) global._mongoClientPromise = undefined
+    } else if (_prodClientPromise === pending) {
+      _prodClientPromise = null
+    }
+    try { await client.close() } catch { /* Preserve the original connection error. */ }
+    throw error
+  })
+  return pending
+}
+
 function requireEnv(name: string): string {
   const value = process.env[name]
   if (!value) {
@@ -33,18 +49,14 @@ function requireEnv(name: string): string {
 export function getClientPromise(): Promise<MongoClient> {
   if (process.env.NODE_ENV === 'development') {
     if (!global._mongoClientPromise) {
-      const uri = requireEnv('MONGODB_URI')
-      const client = new MongoClient(uri, options)
-      global._mongoClientPromise = client.connect()
+      global._mongoClientPromise = connectClient(true)
     }
     return global._mongoClientPromise
   }
 
   // 生产模式: 使用模块级缓存
   if (!_prodClientPromise) {
-    const uri = requireEnv('MONGODB_URI')
-    const client = new MongoClient(uri, options)
-    _prodClientPromise = client.connect()
+    _prodClientPromise = connectClient(false)
   }
   return _prodClientPromise
 }

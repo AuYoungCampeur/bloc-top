@@ -1,4 +1,5 @@
 import type { Route } from './types'
+import { getPrimaryFaceIdentity } from './face-references'
 
 /**
  * Cloudflare R2 图片存储配置
@@ -62,7 +63,7 @@ export function getFaceTopoUrl(
   timestamp?: number
 ): string {
   const version = timestamp ? `t=${timestamp}` : `v=${IMAGE_VERSION}`
-  return `${IMAGE_BASE_URL}/${cragId}/${encodeURIComponent(area)}/${encodeURIComponent(faceId)}.jpg?${version}`
+  return `${IMAGE_BASE_URL}/${encodeURIComponent(cragId)}/${encodeURIComponent(area)}/${encodeURIComponent(faceId)}.jpg?${version}`
 }
 
 /**
@@ -74,8 +75,9 @@ export function getFaceTopoUrl(
  * @param timestamp - 可选时间戳
  */
 export function getTopoImageUrl(route: Route, timestamp?: number): string {
-  if (route.faceId && route.area) {
-    return getFaceTopoUrl(route.cragId, route.area, route.faceId, timestamp)
+  const face = getPrimaryFaceIdentity(route)
+  if (face) {
+    return getFaceTopoUrl(face.cragId, face.area, face.faceId, timestamp)
   }
   return getRouteTopoUrl(route.cragId, route.name, timestamp)
 }

@@ -218,7 +218,20 @@
     "confirmDelete": "Delete offline data for {name}?",
     "deleteSuccess": "Offline data deleted",
     "notSupported": "Your browser does not support offline features",
-    "updateAvailable": "Update Available"
+    "updateAvailable": "Update Available",
+    "routesAvailable": "routes available offline",
+    "imagesFailed": "{count} images could not be saved. Check your connection, image access and free space, then retry.",
+    "snapshotFailed": "Unable to get complete route data. Connect and retry.",
+    "storageFailed": "Offline storage failed. Check free device space and retry.",
+    "imageUnavailable": "Image not saved reliably. Connect and download again.",
+    "back": "Back",
+    "legacyRepair": "Older offline data. Connect and download again to restore complete images and route information.",
+    "routeMissing": "This route is not in the local snapshot.",
+    "localRoutes": "Local routes ({count})",
+    "onlineFeaturesUnavailable": "Weather, maps and Beta videos require a connection.",
+    "quotaExceeded": "Not enough storage. Remove some offline content and try again.",
+    "cancelled": "Download cancelled.",
+    "storageBlocked": "Another BlocTop page is blocking the offline database upgrade. Close other BlocTop pages and try again."
   },
   "OfflinePage": {
     "title": "Offline Content",
@@ -262,7 +275,8 @@
     "cragInfo": "{routes, plural, =1 {# route} other {# routes}} · {images, plural, =1 {# image} other {# images}}",
     "delete": "Delete",
     "confirmDelete": "Delete offline data for {name}? You'll need to re-download it.",
-    "deleteHint": "After deletion, this crag won't be available offline. You can re-download it anytime."
+    "deleteHint": "After deletion, this crag won't be available offline. You can re-download it anytime.",
+    "deleteFailed": "Unable to completely remove offline data. Please retry."
   },
   "InstallCard": {
     "title": "Add to Home Screen",

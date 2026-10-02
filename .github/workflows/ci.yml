@@ -44,6 +44,26 @@ jobs:
         run: pnpm test:ct
       - name: Build both applications without service credentials
         run: pnpm build
+      - name: Verify offline cold start with local fixtures
+        shell: bash
+        run: |
+          cd apps/pwa
+          node node_modules/next/dist/bin/next start -p 4100 > "$RUNNER_TEMP/offline-pwa.log" 2>&1 &
+          PWA_SERVER_PID=$!
+          trap 'kill "$PWA_SERVER_PID" 2>/dev/null || true; wait "$PWA_SERVER_PID" 2>/dev/null || true' EXIT
+          PWA_READY=false
+          for attempt in {1..30}; do
+            if curl --fail --silent --max-time 2 http://localhost:4100/zh/offline > /dev/null; then
+              PWA_READY=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$PWA_READY" != true ]; then
+            cat "$RUNNER_TEMP/offline-pwa.log"
+            exit 1
+          fi
+          node scripts/offline-sw-smoke.mjs
 
   required-checks:
     # Keep the existing protected-branch check names. Each requires the complete

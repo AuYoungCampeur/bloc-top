@@ -41,6 +41,17 @@ describe('getTopoAnnotations', () => {
     expect(getTopoAnnotations(route)).toEqual([])
   })
 
+  it('旧标注使用 faceArea，图片区域不随线路所属区域变化', () => {
+    const route: Route = {
+      ...minimalRoute,
+      faceId: 'face-1',
+      faceArea: '侧墙',
+      topoLine: [{ x: 0.1, y: 0.2 }, { x: 0.3, y: 0.4 }],
+    }
+    expect(getTopoAnnotations(route)[0].area).toBe('侧墙')
+    expect(route.area).toBe('主墙')
+  })
+
   it('有新字段 topoAnnotations 时直接返回新字段', () => {
     const annotations: RouteTopoAnnotation[] = [
       { faceId: 'face-1', area: '主墙', topoLine: [{ x: 0.1, y: 0.2 }, { x: 0.3, y: 0.4 }] },

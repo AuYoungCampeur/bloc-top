@@ -56,6 +56,33 @@ describe('Service Worker runtime wiring', () => {
     expect(rule?.handler.constructor.name).toBe('NetworkFirst')
   })
 
+  it('revision-pinned downloads bypass R2 runtime cache so a bad first body can be retried', async () => {
+    vi.stubGlobal('self', { location: { origin: 'https://www.bouldering.top' }, addEventListener: vi.fn() })
+    await import('./sw')
+    const request = new Request('https://img.bouldering.top/fixture/a.jpg?offlineRevision=one', { cache: 'no-store', mode: 'cors' })
+    const context = { url: new URL(request.url), request, sameOrigin: false, event: {} as ExtendableEvent }
+    const rule = state.runtimeCaching.find(rule => typeof rule.matcher === 'function' && rule.matcher(context))
+    expect(rule?.handler.constructor.name).toBe('NetworkOnly')
+  })
+
+  it('uses installed Serwist first-match routing for pinned media and snapshot API', async () => {
+    vi.stubGlobal('self', { location: new URL('https://www.bouldering.top/sw.js'), registration: { scope: 'https://www.bouldering.top/' }, addEventListener: vi.fn() })
+    await import('./sw')
+    const { Serwist: InstalledSerwist } = await vi.importActual<typeof import('serwist')>('serwist')
+    const router = new InstalledSerwist({
+      precacheEntries: [], disableDevLogs: true,
+      runtimeCaching: state.runtimeCaching.map(rule => ({ matcher: rule.matcher, method: rule.method, handler: async () => new Response(rule.handler.constructor.name) })),
+    })
+    for (const href of ['https://img.bouldering.top/fixture/a.jpg?offlineRevision=one', 'https://www.bouldering.top/api/crags/fixture/offline']) {
+      const request = new Request(href, { cache: 'no-store' })
+      const event = {} as ExtendableEvent
+      const match = router.findMatchingRoute({ url: new URL(href), sameOrigin: new URL(href).origin === self.location.origin, request, event })
+      expect(match.route).toBeDefined()
+      const response = await match.route!.handler.handle({ request, event, url: new URL(href) })
+      expect(await response.text()).toBe('NetworkOnly')
+    }
+  })
+
   it('waits for old API caches to be removed during activation', async () => {
     const listeners = new Map<string, (event: { waitUntil: (promise: Promise<void>) => void }) => void>()
     vi.stubGlobal('self', {

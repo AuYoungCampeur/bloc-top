@@ -12,6 +12,7 @@ interface FilterTag {
 }
 
 interface RouteFilterBarProps {
+  faces: { faceId: string; area: string }[]
   crags: Crag[]
   selectedCrag: string
   onCragSelect: (cragId: string) => void
@@ -21,7 +22,6 @@ interface RouteFilterBarProps {
   onAreaChange: (area: string | null) => void
   sortDirection: SortDirection
   onToggleSort: () => void
-  filteredCount: number
   activeFilterTags: FilterTag[]
   // i18n
   allLabel: string
@@ -34,6 +34,7 @@ interface RouteFilterBarProps {
 }
 
 export function RouteFilterBar({
+  faces,
   crags,
   selectedCrag,
   onCragSelect,
@@ -43,7 +44,6 @@ export function RouteFilterBar({
   onAreaChange,
   sortDirection,
   onToggleSort,
-  filteredCount,
   activeFilterTags,
   allLabel,
   totalCountLabel,
@@ -77,6 +77,7 @@ export function RouteFilterBar({
       {/* 岩面缩略图 */}
       {selectedCrag ? (
         <FaceThumbnailStrip
+          faces={faces}
           selectedCrag={selectedCrag}
           selectedFace={selectedFace}
           onFaceSelect={onFaceSelect}

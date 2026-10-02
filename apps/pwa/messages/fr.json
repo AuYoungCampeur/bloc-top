@@ -216,7 +216,20 @@
     "confirmDelete": "Supprimer les données hors ligne pour {name} ?",
     "deleteSuccess": "Données hors ligne supprimées",
     "notSupported": "Votre navigateur ne prend pas en charge les fonctionnalités hors ligne",
-    "updateAvailable": "Mise à jour disponible"
+    "updateAvailable": "Mise à jour disponible",
+    "routesAvailable": "voies disponibles hors ligne",
+    "imagesFailed": "{count} images n’ont pas été enregistrées. Vérifiez la connexion, l’accès aux images et l’espace disponible, puis réessayez.",
+    "snapshotFailed": "Impossible de récupérer les données complètes. Connectez-vous et réessayez.",
+    "storageFailed": "Échec du stockage hors ligne. Vérifiez l’espace disponible et réessayez.",
+    "imageUnavailable": "Image non enregistrée de façon fiable. Connectez-vous et téléchargez à nouveau.",
+    "back": "Retour",
+    "legacyRepair": "Anciennes données hors ligne. Connectez-vous et téléchargez à nouveau pour compléter les images et les informations.",
+    "routeMissing": "Cette voie est absente des données locales.",
+    "localRoutes": "Voies locales ({count})",
+    "onlineFeaturesUnavailable": "La météo, les cartes et les vidéos Beta nécessitent une connexion.",
+    "quotaExceeded": "Espace de stockage insuffisant. Supprimez du contenu hors ligne et réessayez.",
+    "cancelled": "Téléchargement annulé.",
+    "storageBlocked": "Une autre page BlocTop bloque la mise à jour des données hors ligne. Fermez les autres pages BlocTop et réessayez."
   },
   "OfflineCache": {
     "title": "Cache hors ligne",
@@ -230,7 +243,8 @@
     "cragInfo": "{routes, plural, =1 {# voie} other {# voies}} · {images, plural, =1 {# image} other {# images}}",
     "delete": "Supprimer",
     "confirmDelete": "Supprimer les données hors ligne pour {name} ? Vous devrez les retélécharger.",
-    "deleteHint": "Après la suppression, ce site ne sera plus disponible hors ligne. Vous pouvez le retélécharger à tout moment."
+    "deleteHint": "Après la suppression, ce site ne sera plus disponible hors ligne. Vous pouvez le retélécharger à tout moment.",
+    "deleteFailed": "Impossible de supprimer toutes les données hors ligne. Réessayez."
   },
   "InstallCard": {
     "title": "Ajouter à l'écran d'accueil",
@@ -487,5 +501,17 @@
   "MaintenanceBanner": {
     "message": "Le site rencontre des problèmes. Certaines fonctions peuvent être indisponibles.",
     "dismiss": "Fermer"
+  },
+  "OfflinePage": {
+    "title": "Contenu hors ligne",
+    "description": "Consultez les sites téléchargés",
+    "offline": "Vous êtes hors ligne",
+    "backOnline": "Connexion rétablie",
+    "downloadedCrags": "{count, plural, =1 {# site téléchargé} other {# sites téléchargés}}",
+    "routeCount": "{count, plural, =1 {# voie} other {# voies}}",
+    "noDownloads": "Aucun contenu hors ligne",
+    "downloadHint": "Téléchargez les données d’un site lorsque vous êtes connecté",
+    "goHome": "Accueil",
+    "retry": "Réessayer la connexion"
   }
 }

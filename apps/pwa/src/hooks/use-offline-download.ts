@@ -11,27 +11,25 @@
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react'
-import type { Crag, Route, DownloadProgress, OfflineCragMeta } from '@/types'
+import type { Crag, Route, OfflineCragMeta } from '@/types'
+import { downloadOfflineSnapshot, OfflineDownloadError, type OfflineDownloadProgress } from '@/lib/offline-download'
 import {
-  saveCragOffline,
   getCragOffline,
+  getAllOfflineCrags,
   deleteCragOffline,
   isOfflineAvailable,
   getMeta,
-  collectImageUrls,
-  prefetchImages,
-  deleteImages,
-  generateVersion,
   isIndexedDBSupported,
   getCragsNeedingCheck,
   updateStaleness,
   getStaleInfo,
+  OFFLINE_META_EVENT,
 } from '@/lib/offline-storage'
 
 export interface UseOfflineDownloadReturn {
   // 状态
   offlineCrags: OfflineCragMeta[]           // 已下载的岩场列表
-  downloadProgress: DownloadProgress | null  // 当前下载进度
+  downloadProgress: OfflineDownloadProgress | null  // 当前下载进度
   isSupported: boolean                       // 是否支持离线功能
 
   // 操作
@@ -80,15 +78,14 @@ export function useOfflineDownload(): UseOfflineDownloadReturn {
   const [isSupported, setIsSupported] = useState(false)
   const [offlineCrags, setOfflineCrags] = useState<OfflineCragMeta[]>([])
 
-  /* eslint-disable react-hooks/set-state-in-effect -- 浏览器 API 检测必须在 hydration 后执行，无法用 render-time 模式（会破坏 hydration 一致性） */
   useEffect(() => {
-    if (isIndexedDBSupported()) {
+    if (isIndexedDBSupported() && 'caches' in window) {
       setIsSupported(true)
       setOfflineCrags(loadOfflineCrags())
+      void getAllOfflineCrags().then(() => setOfflineCrags(loadOfflineCrags())).catch(() => {})
     }
   }, [])
-  /* eslint-enable react-hooks/set-state-in-effect */
-  const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null)
+  const [downloadProgress, setDownloadProgress] = useState<OfflineDownloadProgress | null>(null)
 
   // staleness 检查版本号 — 递增时触发 UI 重渲染
   const [staleVersion, setStaleVersion] = useState(0)
@@ -110,71 +107,32 @@ export function useOfflineDownload(): UseOfflineDownloadReturn {
   /**
    * 下载岩场数据和图片
    */
+  const activeDownloadRef = useRef(false)
   const downloadCrag = useCallback(async (crag: Crag, routes: Route[]) => {
+    void routes // Cards may contain trimmed data; always request a complete snapshot.
+    if (activeDownloadRef.current) return
+    activeDownloadRef.current = true
     const cragId = crag.id
-
-    // 设置初始进度
-    const imageUrls = collectImageUrls(crag, routes)
-    setDownloadProgress({
-      cragId,
-      status: 'downloading',
-      totalImages: imageUrls.length,
-      downloadedImages: 0,
-    })
-
+    setDownloadProgress({ cragId, status: 'downloading', totalImages: 0, downloadedImages: 0 })
     try {
-      // 1. 预取所有图片
-      const downloadedCount = await prefetchImages(
-        imageUrls,
-        (downloaded, total) => {
-          setDownloadProgress(prev =>
-            prev && prev.cragId === cragId ? {
-              ...prev,
-              downloadedImages: downloaded,
-              totalImages: total,
-            } : prev
-          )
-        }
-      )
-
-      // 2. 保存数据到 IndexedDB
-      await saveCragOffline({
-        cragId,
-        crag,
-        routes,
-        downloadedAt: new Date().toISOString(),
-        version: generateVersion(cragId),
-        imageCount: downloadedCount,
+      const data = await downloadOfflineSnapshot(cragId, result => {
+        setDownloadProgress({ cragId, status: 'downloading', totalImages: result.total, downloadedImages: result.cached, failedImages: result.failedUrls.length })
       })
-
-      // 3. 更新状态
-      setDownloadProgress({
-        cragId,
-        status: 'completed',
-        totalImages: imageUrls.length,
-        downloadedImages: downloadedCount,
-      })
-
-      // 4. 刷新列表
+      setDownloadProgress({ cragId, status: 'completed', totalImages: data.imageCount, downloadedImages: data.imageCount, routeCount: data.routes.length })
       refreshList()
-
-      // 5. 短暂延迟后清除进度 (让用户看到完成状态)
-      setTimeout(() => {
-        setDownloadProgress(prev =>
-          prev?.cragId === cragId ? null : prev
-        )
-      }, 2000)
-
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : '下载失败'
+      const result = error instanceof OfflineDownloadError ? error.result : undefined
       setDownloadProgress({
-        cragId,
-        status: 'failed',
-        totalImages: imageUrls.length,
-        downloadedImages: 0,
-        error: errorMessage,
+        cragId, status: 'failed', totalImages: result?.total ?? 0, downloadedImages: result?.cached ?? 0,
+        failedImages: result?.failedUrls.length,
+        error: error instanceof OfflineDownloadError ? error.reason : 'storage',
       })
-    }
+    } finally { activeDownloadRef.current = false }
+  }, [refreshList])
+
+  useEffect(() => {
+    window.addEventListener(OFFLINE_META_EVENT, refreshList)
+    return () => window.removeEventListener(OFFLINE_META_EVENT, refreshList)
   }, [refreshList])
 
   /**
@@ -189,23 +147,25 @@ export function useOfflineDownload(): UseOfflineDownloadReturn {
   /**
    * 后台检查所有已下载岩场是否有更新
    */
-  const hasCheckedRef = useRef(false)
+  const checkingRef = useRef(false)
   useEffect(() => {
-    if (!isSupported || hasCheckedRef.current) return
-    hasCheckedRef.current = true
+    if (!isSupported) return
 
     const checkForUpdates = async () => {
+      if (checkingRef.current || !navigator.onLine) return
       const cragIds = getCragsNeedingCheck()
       if (cragIds.length === 0) return
+      checkingRef.current = true
 
       for (const cragId of cragIds) {
         try {
-          const res = await fetch(`/api/crags/${cragId}/version`)
+          const res = await fetch(`/api/crags/${encodeURIComponent(cragId)}/version`, { cache: 'no-store' })
+          if (res.status === 404) { updateStaleness(cragId, 0, 'deleted'); continue }
           if (!res.ok) continue
 
           const data = await res.json()
           if (data.success && typeof data.routeCount === 'number') {
-            updateStaleness(cragId, data.routeCount)
+            updateStaleness(cragId, data.routeCount, data.revision)
           }
         } catch {
           // 网络失败静默忽略
@@ -213,11 +173,19 @@ export function useOfflineDownload(): UseOfflineDownloadReturn {
       }
 
       // 检查完成后触发 UI 更新
+      checkingRef.current = false
       setStaleVersion(v => v + 1)
     }
 
-    checkForUpdates()
-  }, [isSupported])
+    void checkForUpdates()
+    window.addEventListener('online', checkForUpdates)
+    const onVisible = () => { if (document.visibilityState === 'visible') void checkForUpdates() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.removeEventListener('online', checkForUpdates)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [isSupported, offlineCrags.length])
 
   /**
    * 删除岩场离线数据
@@ -228,21 +196,12 @@ export function useOfflineDownload(): UseOfflineDownloadReturn {
     routes?: Route[]
   ) => {
     try {
-      // 如果提供了 crag 和 routes，先删除缓存的图片
-      if (crag && routes) {
-        const imageUrls = collectImageUrls(crag, routes)
-        await deleteImages(imageUrls)
-      } else {
-        // 尝试从 IndexedDB 获取数据来删除图片
-        const stored = await getCragOffline(cragId)
-        if (stored) {
-          const imageUrls = collectImageUrls(stored.crag, stored.routes)
-          await deleteImages(imageUrls)
-        }
-      }
+      void crag
+      void routes
 
       // 删除 IndexedDB 中的数据
       await deleteCragOffline(cragId)
+      setDownloadProgress(current => current?.cragId === cragId ? null : current)
 
       // 刷新列表
       refreshList()

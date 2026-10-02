@@ -54,4 +54,29 @@ describe('getSiblingRoutes', () => {
     const result = getSiblingRoutes(testRoutes[0], testRoutes)
     expect(result.map((r) => r.id)).toEqual([1, 2, 3])
   })
+
+  it('does not mix identically named faces in another area', () => {
+    const other = { ...routes[1], area: 'right' }
+    expect(getSiblingRoutes(routes[0], [routes[0], other]).map(r => r.id)).toEqual([1])
+  })
+
+  it('first annotation region overrides route category and a secondary matching annotation uses its own line', () => {
+    const selected = { ...routes[0], area: 'left', topoAnnotations: [{ faceId: 'f1', area: 'right', topoLine: topoLine! }] }
+    const matchingLine = [{ x: 0.2, y: 0.3 }, { x: 0.7, y: 0.8 }]
+    const sibling = { ...routes[1], topoAnnotations: [
+      { faceId: 'different', area: 'left', topoLine: topoLine! },
+      { faceId: 'f1', area: 'right', topoLine: matchingLine, topoTension: 0.8 },
+    ] }
+    const result = getSiblingRoutes(selected, [selected, sibling, routes[0]])
+    expect(result.map(r => r.id)).toEqual([1, 2])
+    expect(result[1]).toMatchObject({ area: 'left', faceId: 'f1', faceArea: 'right', topoLine: matchingLine, topoTension: 0.8 })
+    expect(result[1].topoAnnotations?.[0].area).toBe('right')
+    expect(sibling.topoAnnotations[0].area).toBe('left')
+  })
+
+  it('legacy faceArea isolates image identity from the route category', () => {
+    const selected = { ...routes[0], faceArea: 'right' }
+    const sameImage = { ...routes[1], area: 'right' }
+    expect(getSiblingRoutes(selected, [selected, sameImage, routes[0]]).map(r => r.id)).toEqual([1, 2])
+  })
 })

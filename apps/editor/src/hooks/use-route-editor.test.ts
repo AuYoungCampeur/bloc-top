@@ -95,6 +95,7 @@ function setupWorkbench(route: Route = mockRoute) {
 describe('useRouteEditor', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockCache.getImageUrl.mockReturnValue('https://img.example.com/face.jpg')
     // Reset fetch mock
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -109,6 +110,13 @@ describe('useRouteEditor', () => {
     expect(result.current.editedRoute.area).toBe('主墙')
     expect(result.current.topoLine).toHaveLength(2)
     expect(result.current.topoTension).toBe(0.5)
+  })
+
+  it('旧线路使用独立照片区域初始化，不把线路业务区域当照片区域', () => {
+    const { result } = setup({ ...mockRoute, area: '业务区域', faceArea: '照片区域' })
+    expect(result.current.annotations[0].area).toBe('照片区域')
+    expect(result.current.editedRoute.area).toBe('业务区域')
+    expect(result.current.hasUnsavedChanges()).toBe(false)
   })
 
   it('无选中线路时 hasUnsavedChanges 返回 false', () => {
@@ -221,6 +229,52 @@ describe('useRouteEditor', () => {
       expect(result.current.annotations[1].faceId).toBe('face-2')
       expect(result.current.annotations[1].topoLine).toHaveLength(0)
       expect(result.current.activeAnnotationIndex).toBe(1)
+    })
+
+    it('按角度切换同步照片和点，各区域草稿保持；选已有同名图只激活不重复添加', () => {
+      mockCache.getImageUrl.mockImplementation(({ cragId, area, faceId }) => `https://img.example.com/${cragId}/${area}/${faceId}`)
+      const initial = {
+        ...mockRoute,
+        topoAnnotations: [
+          { faceId: 'same', area: '北区', topoLine: [{ x: 0.1, y: 0.2 }, { x: 0.3, y: 0.4 }], topoTension: 0.2 },
+          { faceId: 'same', area: '南区', topoLine: [{ x: 0.5, y: 0.6 }, { x: 0.7, y: 0.8 }], topoTension: 0.8 },
+        ],
+      }
+      const { result } = setup(initial)
+      const northDraft = [{ x: 0.15, y: 0.25 }, { x: 0.35, y: 0.45 }]
+      const southDraft = [{ x: 0.55, y: 0.65 }, { x: 0.75, y: 0.85 }]
+      act(() => result.current.updateActiveTopoLine(northDraft))
+      act(() => result.current.activateAnnotation(1))
+      expect(result.current.imageUrl).toBe('https://img.example.com/test-crag/南区/same')
+      expect(result.current.topoLine).toEqual(initial.topoAnnotations[1].topoLine)
+      expect(result.current.topoTension).toBe(0.8)
+      expect(result.current.isImageLoading).toBe(true)
+      expect(result.current.imageLoadError).toBe(false)
+      act(() => result.current.updateActiveTopoLine(southDraft))
+      act(() => result.current.activateAnnotation(0))
+      expect(result.current.imageUrl).toBe('https://img.example.com/test-crag/北区/same')
+      expect(result.current.topoLine).toEqual(northDraft)
+      expect(result.current.topoTension).toBe(0.2)
+      act(() => result.current.addAnnotation('same', '南区'))
+      expect(result.current.annotations).toHaveLength(2)
+      expect(result.current.activeAnnotationIndex).toBe(1)
+      expect(result.current.imageUrl).toBe('https://img.example.com/test-crag/南区/same')
+      expect(result.current.topoLine).toEqual(southDraft)
+      expect(result.current.annotations[0].topoLine).toEqual(northDraft)
+    })
+
+    it('历史同图多标注不会自动删除，重复选择激活第一条且越界激活无副作用', () => {
+      const history = { ...mockRoute, topoAnnotations: [
+        { faceId: 'same', area: '主墙', topoLine: mockRoute.topoLine! },
+        { faceId: 'same', area: '主墙', topoLine: [{ x: 0.4, y: 0.4 }, { x: 0.6, y: 0.6 }] },
+      ] }
+      const { result } = setup(history)
+      act(() => result.current.activateAnnotation(1))
+      act(() => result.current.addAnnotation('same', '主墙'))
+      expect(result.current.annotations).toEqual(history.topoAnnotations)
+      expect(result.current.activeAnnotationIndex).toBe(0)
+      act(() => { expect(result.current.activateAnnotation(10)).toBe(false) })
+      expect(result.current.activeAnnotationIndex).toBe(0)
     })
 
     it('removeAnnotation 后 activeAnnotationIndex 不越界', () => {

@@ -57,6 +57,28 @@ describe('FaceImageCacheService', () => {
   })
 
   describe('getImageUrl', () => {
+    it('first annotation cross-area URL and cache identity invalidate together, without changing the other same-named face', () => {
+      const route: Route = { id: 1, cragId: 'c1', name: 'route', grade: 'V1', area: 'A', faceId: 'wrong', faceArea: 'A',
+        topoAnnotations: [{ area: 'B', faceId: 'wall', topoLine: [{ x: 0, y: 0 }, { x: 1, y: 1 }] }] }
+      const other = { cragId: 'c1', area: 'A', faceId: 'wall' }
+      const before = cache.getImageUrl(other)
+      expect(FaceImageCacheService.getFaceKey(route)).toBe('c1/B/wall')
+      expect(cache.getImageUrl(route)).toContain('/c1/B/wall.jpg?v=')
+      const callback = vi.fn()
+      cache.subscribe(FaceImageCacheService.getFaceKey(route)!, callback)
+      cache.invalidate('c1/B/wall')
+      expect(callback).toHaveBeenCalledOnce()
+      expect(cache.getImageUrl(route)).toMatch(/\/c1\/B\/wall.jpg\?t=\d+/)
+      expect(cache.getImageUrl(other)).toBe(before)
+    })
+
+    it('legacy faceArea is used by both the image URL and precise version key', () => {
+      const route: Route = { id: 1, cragId: 'c1', name: 'route', grade: 'V1', area: 'A', faceId: 'wall', faceArea: 'B' }
+      expect(FaceImageCacheService.getFaceKey(route)).toBe('c1/B/wall')
+      cache.invalidate('c1/B/wall')
+      expect(cache.getImageUrl(route)).toMatch(/\/c1\/B\/wall.jpg\?t=\d+/)
+    })
+
     it('正常情况下应返回带 v 参数的 URL', () => {
       const url = cache.getImageUrl({
         cragId: 'c1',

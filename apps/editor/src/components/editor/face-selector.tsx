@@ -6,6 +6,7 @@ import type { FaceGroup } from '@/types/face'
 export interface FaceSelectorProps {
   faceGroups: FaceGroup[]
   selectedFaceId: string | null
+  selectedFaceArea: string | null
   isLoading: boolean
   onSelect: (faceId: string, area: string) => void
 }
@@ -13,15 +14,16 @@ export interface FaceSelectorProps {
 export const FaceSelector = React.memo(function FaceSelector({
   faceGroups,
   selectedFaceId,
+  selectedFaceArea,
   isLoading,
   onSelect,
 }: FaceSelectorProps) {
   const handleClick = useCallback(
     (faceId: string, area: string) => {
-      if (faceId === selectedFaceId) return
+      if (faceId === selectedFaceId && area === selectedFaceArea) return
       onSelect(faceId, area)
     },
-    [selectedFaceId, onSelect]
+    [selectedFaceId, selectedFaceArea, onSelect]
   )
 
   if (isLoading) {
@@ -47,11 +49,13 @@ export const FaceSelector = React.memo(function FaceSelector({
     <div className="flex gap-2 overflow-x-auto scrollbar-hide">
       {faceGroups.map(face => (
         <button
-          key={face.faceId}
+          key={`${face.area}/${face.faceId}`}
           onClick={() => handleClick(face.faceId, face.area)}
-          className={`flex-shrink-0 p-1.5 transition-all duration-200 active:scale-[0.98] ${selectedFaceId === face.faceId ? 'ring-2' : ''}`}
+          aria-pressed={selectedFaceId === face.faceId && selectedFaceArea === face.area}
+          aria-label={`${face.area}/${face.faceId}`}
+          className={`flex-shrink-0 p-1.5 transition-all duration-200 active:scale-[0.98] ${selectedFaceId === face.faceId && selectedFaceArea === face.area ? 'ring-2' : ''}`}
           style={{
-            backgroundColor: selectedFaceId === face.faceId
+            backgroundColor: selectedFaceId === face.faceId && selectedFaceArea === face.area
               ? 'color-mix(in srgb, var(--theme-primary) 12%, var(--theme-surface))'
               : 'var(--theme-surface)',
             borderRadius: 'var(--theme-radius-lg)',

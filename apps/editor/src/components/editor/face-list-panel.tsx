@@ -88,10 +88,10 @@ export function FaceListPanel({
               </div>
             ) : (
               faceGroups.map(face => (
-                <button key={face.faceId} onClick={() => onSelectFace(face)}
-                  className={`w-full text-left p-3 transition-all duration-200 active:scale-[0.98] ${selectedFace?.faceId === face.faceId && !isCreating ? 'ring-2' : 'glass'}`}
+                <button key={`${face.area}/${face.faceId}`} onClick={() => onSelectFace(face)}
+                  className={`w-full text-left p-3 transition-all duration-200 active:scale-[0.98] ${selectedFace?.faceId === face.faceId && selectedFace?.area === face.area && !isCreating ? 'ring-2' : 'glass'}`}
                   style={{
-                    backgroundColor: selectedFace?.faceId === face.faceId && !isCreating
+                    backgroundColor: selectedFace?.faceId === face.faceId && selectedFace?.area === face.area && !isCreating
                       ? 'color-mix(in srgb, var(--theme-primary) 12%, var(--theme-surface))'
                       : undefined,
                     borderRadius: 'var(--theme-radius-xl)',
