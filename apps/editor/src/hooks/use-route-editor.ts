@@ -6,6 +6,7 @@ import { computeViewBox } from '@bloctop/shared/topo-constants'
 import { useToast } from '@bloctop/ui/components/toast'
 import { validateRouteForm } from '@/lib/route-validation'
 import type { FaceImageCacheService } from '@bloctop/ui/face-image'
+import { getRouteTopoAnnotations } from '@bloctop/shared/face-references'
 
 export interface UseRouteEditorOptions {
   selectedRoute: Route | null
@@ -18,18 +19,7 @@ export interface UseRouteEditorOptions {
 
 /** 从路由数据初始化 annotations（兼容旧字段） */
 function buildInitialAnnotations(route: Route): RouteTopoAnnotation[] {
-  if (route.topoAnnotations && route.topoAnnotations.length > 0) {
-    return route.topoAnnotations
-  }
-  if (route.faceId && route.area && route.topoLine && route.topoLine.length >= 2) {
-    return [{
-      faceId: route.faceId,
-      area: route.area,
-      topoLine: route.topoLine,
-      topoTension: route.topoTension,
-    }]
-  }
-  return []
+  return getRouteTopoAnnotations(route)
 }
 
 /** Persisted fields owned by this editor; Beta updates are a separate workflow. */
@@ -182,20 +172,37 @@ export function useRouteEditor({
   }, [editorSelection, loadPersistedDraft, selectionKey])
 
   // Annotation management
-  const addAnnotation = useCallback((faceId: string, area: string) => {
+  const loadAnnotationImage = useCallback((faceId: string, area: string) => {
     if (!selectedRoute) return
-    const newAnnotation: RouteTopoAnnotation = { faceId, area, topoLine: [] }
-    setAnnotations(prev => {
-      const next = [...prev, newAnnotation]
-      setActiveAnnotationIndex(next.length - 1)
-      return next
-    })
-    const url = faceImageCache.getImageUrl({ cragId: selectedRoute.cragId, area, faceId })
-    setImageUrl(url)
+    setImageUrl(faceImageCache.getImageUrl({ cragId: selectedRoute.cragId, area, faceId }))
     setIsImageLoading(true)
     setImageLoadError(false)
     setImageAspectRatio(undefined)
   }, [selectedRoute, faceImageCache])
+
+  const activateAnnotation = useCallback((index: number) => {
+    const annotation = annotations[index]
+    if (!annotation) return false
+    setActiveAnnotationIndex(index)
+    loadAnnotationImage(annotation.faceId, annotation.area)
+    return true
+  }, [annotations, loadAnnotationImage])
+
+  const addAnnotation = useCallback((faceId: string, area: string) => {
+    if (!selectedRoute) return
+    const newAnnotation: RouteTopoAnnotation = { faceId, area, topoLine: [] }
+    setAnnotations(prev => {
+      const existingIndex = prev.findIndex(annotation => annotation.faceId === faceId && annotation.area === area)
+      if (existingIndex !== -1) {
+        setActiveAnnotationIndex(existingIndex)
+        return prev
+      }
+      const next = [...prev, newAnnotation]
+      setActiveAnnotationIndex(next.length - 1)
+      return next
+    })
+    loadAnnotationImage(faceId, area)
+  }, [selectedRoute, loadAnnotationImage])
 
   const removeAnnotation = useCallback((index: number) => {
     setAnnotations(prev => {
@@ -416,6 +423,7 @@ export function useRouteEditor({
     annotations,
     activeAnnotationIndex,
     setActiveAnnotationIndex,
+    activateAnnotation,
     addAnnotation,
     removeAnnotation,
     updateActiveTopoLine,

@@ -26,6 +26,7 @@ import {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockFindOne.mockResolvedValue(null)
   mockCollection.mockReturnValue({
     findOne: mockFindOne,
     find: mockFind,
@@ -80,6 +81,18 @@ describe('permissions', () => {
       expect(mockFindOne).toHaveBeenCalledWith({ userId: 'user1', cragId: 'crag1' })
     })
 
+    it('lets a canonical login use a historical mixed-case ObjectId grant', async () => {
+      const userId = 'abcdef1234567890abcdef12'
+      const storedId = 'AbCdEf1234567890aBcDeF12'
+      mockFindOne.mockImplementationOnce(({ userId: filter, cragId }) => {
+        const matches = typeof filter === 'string' ? filter === storedId : filter.$in.some((value: string | RegExp) =>
+          value instanceof RegExp ? value.test(storedId) : value === storedId)
+        return Promise.resolve(matches && cragId === 'crag1' ? { userId: storedId, cragId } : null)
+      })
+      expect(await canEditCrag(userId, 'crag1', 'user')).toBe(true)
+      expect(mockCollection).not.toHaveBeenCalledWith('crags')
+    })
+
     it('should fallback to createdBy when no permission record', async () => {
       // First findOne (crag_permissions) returns null
       mockFindOne.mockResolvedValueOnce(null)
@@ -91,6 +104,9 @@ describe('permissions', () => {
       // Should query both collections
       expect(mockCollection).toHaveBeenCalledWith('crag_permissions')
       expect(mockCollection).toHaveBeenCalledWith('crags')
+      expect(mockFindOne).toHaveBeenCalledWith(
+        { _id: 'crag1', createdBy: 'user1' }, { projection: { _id: 1 } },
+      )
     })
 
     it('should deny user without permission or createdBy', async () => {
@@ -137,17 +153,31 @@ describe('permissions', () => {
       expect(mockCollection).not.toHaveBeenCalled()
     })
 
-    it('should allow user with any crag_permission', async () => {
-      mockFindOne.mockResolvedValueOnce({ userId: 'user1', cragId: 'crag1', role: 'manager' })
+    it('allows a manager when their crag still exists', async () => {
+      mockFind.mockReturnValueOnce({ toArray: vi.fn().mockResolvedValue([{ cragId: 'crag1' }]) })
+      mockFind.mockReturnValueOnce({ toArray: vi.fn().mockResolvedValue([{ _id: 'crag1' }]) })
       const result = await canAccessEditor('user1', 'user')
       expect(result).toBe(true)
-      expect(mockFindOne).toHaveBeenCalledWith({ userId: 'user1' })
+      expect(mockFind).toHaveBeenCalledWith({ userId: 'user1' })
     })
 
-    it('should deny user without any crag_permission', async () => {
-      mockFindOne.mockResolvedValueOnce(null)
+    it('denies a user without grants or owned crags', async () => {
+      mockFind.mockReturnValueOnce({ toArray: vi.fn().mockResolvedValue([]) })
+      mockFind.mockReturnValueOnce({ toArray: vi.fn().mockResolvedValue([]) })
       const result = await canAccessEditor('user1', 'user')
       expect(result).toBe(false)
+    })
+
+    it('allows a creator to enter even when the manager grant is missing', async () => {
+      mockFind.mockReturnValueOnce({ toArray: vi.fn().mockResolvedValue([]) })
+      mockFind.mockReturnValueOnce({ toArray: vi.fn().mockResolvedValue([{ _id: 'owned-crag' }]) })
+      expect(await canAccessEditor('user1', 'user')).toBe(true)
+    })
+
+    it('denies access when the only permission refers to a deleted crag', async () => {
+      mockFind.mockReturnValueOnce({ toArray: vi.fn().mockResolvedValue([{ cragId: 'deleted-crag' }]) })
+      mockFind.mockReturnValueOnce({ toArray: vi.fn().mockResolvedValue([]) })
+      expect(await canAccessEditor('user1', 'user')).toBe(false)
     })
   })
 
@@ -165,16 +195,41 @@ describe('permissions', () => {
           { userId: 'user1', cragId: 'crag2', role: 'manager' },
         ]),
       })
+      mockFind.mockReturnValueOnce({ toArray: vi.fn().mockResolvedValueOnce([{ _id: 'crag1' }, { _id: 'crag2' }]) })
       const result = await getEditableCragIds('user1', 'user')
       expect(result).toEqual(['crag1', 'crag2'])
+    })
+
+    it('includes existing crags granted under historical ObjectId spelling', async () => {
+      const userId = 'abcdef1234567890abcdef12'
+      const storedId = 'AbCdEf1234567890aBcDeF12'
+      mockFind.mockImplementationOnce(({ userId: filter }) => {
+        const matches = typeof filter === 'string' ? filter === storedId : filter.$in.some((value: string | RegExp) =>
+          value instanceof RegExp ? value.test(storedId) : value === storedId)
+        return { toArray: async () => matches ? [{ userId: storedId, cragId: 'crag1' }] : [] }
+      })
+      mockFind.mockImplementationOnce(({ $or }) => ({
+        toArray: async () => $or[0]._id.$in.includes('crag1') ? [{ _id: 'crag1' }] : [],
+      }))
+      expect(await getEditableCragIds(userId, 'user')).toEqual(['crag1'])
     })
 
     it('should return empty array for user without permissions', async () => {
       mockFind.mockReturnValueOnce({
         toArray: vi.fn().mockResolvedValueOnce([]),
       })
+      mockFind.mockReturnValueOnce({ toArray: vi.fn().mockResolvedValueOnce([]) })
       const result = await getEditableCragIds('user1', 'user')
       expect(result).toEqual([])
+    })
+
+    it('includes owned crags and excludes dangling grants from the editable list', async () => {
+      mockFind.mockReturnValueOnce({ toArray: vi.fn().mockResolvedValueOnce([{ cragId: 'missing-crag' }]) })
+      mockFind.mockReturnValueOnce({ toArray: vi.fn().mockResolvedValueOnce([{ _id: 'owned-crag' }, { _id: 'owned-crag' }]) })
+      expect(await getEditableCragIds('creator', 'user')).toEqual(['owned-crag'])
+      expect(mockFind).toHaveBeenCalledWith({
+        $or: [{ _id: { $in: ['missing-crag'] } }, { createdBy: 'creator' }],
+      }, { projection: { _id: 1 } })
     })
   })
 })

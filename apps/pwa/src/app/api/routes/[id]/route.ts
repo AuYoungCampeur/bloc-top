@@ -4,7 +4,9 @@ import { requireAuth } from '@/lib/require-auth'
 import { canEditCrag } from '@/lib/permissions'
 import { createModuleLogger } from '@/lib/logger'
 import { revalidateCragPages } from '@/lib/revalidate-helpers'
-import type { Route, TopoPoint } from '@/types'
+import type { Route } from '@/types'
+import { parseRouteTopoUpdates, TopoValidationError } from '@bloctop/shared/route-topo-validation'
+import { normalizeRouteTopoUpdates } from '@bloctop/shared/face-references'
 
 const log = createModuleLogger('API:Routes')
 
@@ -17,9 +19,9 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
-  const routeId = parseInt(id, 10)
+  const routeId = /^[1-9]\d*$/.test(id) ? Number(id) : NaN
 
-  if (isNaN(routeId)) {
+  if (!Number.isSafeInteger(routeId)) {
     return NextResponse.json(
       { success: false, error: '无效的线路 ID' },
       { status: 400 }
@@ -50,24 +52,6 @@ export async function GET(
 }
 
 /**
- * 验证 TopoPoint 数组
- */
-function validateTopoLine(line: unknown): line is TopoPoint[] {
-  if (!Array.isArray(line)) return false
-  return line.every(
-    (point) =>
-      typeof point === 'object' &&
-      point !== null &&
-      typeof point.x === 'number' &&
-      typeof point.y === 'number' &&
-      point.x >= 0 &&
-      point.x <= 1 &&
-      point.y >= 0 &&
-      point.y <= 1
-  )
-}
-
-/**
  * PATCH /api/routes/[id]
  * 更新线路信息（支持部分更新）
  */
@@ -81,9 +65,9 @@ export async function PATCH(
   const { userId, role } = authResult
 
   const { id } = await params
-  const routeId = parseInt(id, 10)
+  const routeId = /^[1-9]\d*$/.test(id) ? Number(id) : NaN
 
-  if (isNaN(routeId)) {
+  if (!Number.isSafeInteger(routeId)) {
     return NextResponse.json(
       { success: false, error: '无效的线路 ID' },
       { status: 400 }
@@ -108,7 +92,12 @@ export async function PATCH(
   }
 
   try {
-    const body = await request.json()
+    let body: Record<string, unknown>
+    try {
+      const parsed: unknown = await request.json()
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Invalid body')
+      body = parsed as Record<string, unknown>
+    } catch { return NextResponse.json({ success: false, error: '请求数据格式无效' }, { status: 400 }) }
     const updates: Partial<Omit<Route, 'id'>> = {}
 
     // 验证并收集可更新的字段
@@ -142,95 +131,20 @@ export async function PATCH(
       updates.area = body.area.trim()
     }
 
-    if (body.setter !== undefined) {
-      updates.setter = body.setter?.trim() || undefined
-    }
-
-    if (body.FA !== undefined) {
-      updates.FA = body.FA?.trim() || undefined
-    }
-
-    if (body.description !== undefined) {
-      updates.description = body.description?.trim() || undefined
-    }
-
-    if (body.image !== undefined) {
-      updates.image = body.image?.trim() || undefined
-    }
-
-    // 验证 faceId
-    if (body.faceId !== undefined) {
-      if (body.faceId === null) {
-        updates.faceId = undefined
-      } else if (typeof body.faceId === 'string' && /^[\u4e00-\u9fffa-z0-9-]+$/.test(body.faceId)) {
-        updates.faceId = body.faceId
-      } else {
-        return NextResponse.json(
-          { success: false, error: 'faceId 格式无效，仅允许中文、小写字母、数字和连字符' },
-          { status: 400 }
-        )
+    for (const field of ['setter', 'FA', 'description', 'image'] as const) {
+      if (body[field] !== undefined) {
+        if (body[field] !== null && typeof body[field] !== 'string') return NextResponse.json({ success: false, error: `${field} 格式无效` }, { status: 400 })
+        updates[field] = typeof body[field] === 'string' ? body[field].trim() || undefined : undefined
       }
     }
 
-    // 验证 topoLine
-    if (body.topoLine !== undefined) {
-      if (body.topoLine === null) {
-        // 允许清空 topoLine
-        updates.topoLine = undefined
-      } else if (!validateTopoLine(body.topoLine)) {
-        return NextResponse.json(
-          { success: false, error: 'Topo 线路数据格式无效' },
-          { status: 400 }
-        )
-      } else {
-        updates.topoLine = body.topoLine
-      }
-    }
-
-    // 验证 topoTension
-    if (body.topoTension !== undefined) {
-      if (body.topoTension === null) {
-        updates.topoTension = undefined
-      } else if (typeof body.topoTension !== 'number' || !Number.isFinite(body.topoTension) || body.topoTension < 0 || body.topoTension > 1) {
-        return NextResponse.json(
-          { success: false, error: 'topoTension 必须是 0-1 之间的数字' },
-          { status: 400 }
-        )
-      } else {
-        updates.topoTension = body.topoTension
-      }
-    }
-
-    // 验证 topoAnnotations
-    if (body.topoAnnotations !== undefined) {
-      if (body.topoAnnotations === null || (Array.isArray(body.topoAnnotations) && body.topoAnnotations.length === 0)) {
-        updates.topoAnnotations = []
-      } else if (!Array.isArray(body.topoAnnotations)) {
-        return NextResponse.json(
-          { success: false, error: 'topoAnnotations 必须是数组' },
-          { status: 400 }
-        )
-      } else {
-        // 验证每条标注
-        for (const annotation of body.topoAnnotations) {
-          if (
-            typeof annotation.faceId !== 'string' ||
-            typeof annotation.area !== 'string' ||
-            !validateTopoLine(annotation.topoLine)
-          ) {
-            return NextResponse.json(
-              { success: false, error: 'topoAnnotations 中的标注数据格式无效' },
-              { status: 400 }
-            )
-          }
-        }
-        updates.topoAnnotations = body.topoAnnotations.map((a: Record<string, unknown>) => ({
-          faceId: a.faceId,
-          area: a.area,
-          topoLine: a.topoLine,
-          ...(typeof a.topoTension === 'number' ? { topoTension: a.topoTension } : {}),
-        }))
-      }
+    // Server owns the array-to-legacy projection, including the image area.
+    try {
+      Object.assign(updates, parseRouteTopoUpdates(body, existingRoute))
+      Object.assign(updates, normalizeRouteTopoUpdates(updates, existingRoute))
+    } catch (error) {
+      if (error instanceof TopoValidationError) return NextResponse.json({ success: false, error: error.message }, { status: 400 })
+      throw error
     }
 
     // 检查是否有需要更新的字段
@@ -289,9 +203,9 @@ export async function DELETE(
 
   const start = Date.now()
   const { id } = await params
-  const routeId = parseInt(id, 10)
+  const routeId = /^[1-9]\d*$/.test(id) ? Number(id) : NaN
 
-  if (isNaN(routeId)) {
+  if (!Number.isSafeInteger(routeId)) {
     return NextResponse.json(
       { success: false, error: '无效的线路 ID' },
       { status: 400 }

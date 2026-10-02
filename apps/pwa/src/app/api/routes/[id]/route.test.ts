@@ -178,6 +178,46 @@ describe('PATCH /api/routes/[id]', () => {
     expect(mockUpdateRoute).toHaveBeenCalledWith(42, expect.objectContaining({ topoLine: undefined }))
   })
 
+  it('projects the first annotation region independently of the route category', async () => {
+    mockRequireAuth.mockResolvedValue({ userId: 'user1', role: 'user' })
+    mockGetRouteById.mockResolvedValue(SAMPLE_ROUTE)
+    mockCanEditCrag.mockResolvedValue(true)
+    const annotations = [
+      { faceId: 'wall', area: 'B', topoLine: [{ x: 0.1, y: 0.2 }, { x: 0.4, y: 0.5 }] },
+      { faceId: 'wall', area: 'C', topoLine: [{ x: 0.2, y: 0.3 }, { x: 0.5, y: 0.6 }] },
+    ]
+    mockUpdateRoute.mockResolvedValue({ ...SAMPLE_ROUTE, topoAnnotations: annotations, faceId: 'wall', faceArea: 'B', topoLine: annotations[0].topoLine })
+    const response = await PATCH(createPatchRequest({ topoAnnotations: annotations, faceId: 'incorrect', topoLine: [] }), makeParams('42'))
+    expect(response.status).toBe(200)
+    expect(mockUpdateRoute).toHaveBeenCalledWith(42, expect.objectContaining({ topoAnnotations: annotations, faceId: 'wall', faceArea: 'B', topoLine: annotations[0].topoLine }))
+    expect((await response.json()).route.area).toBe('A')
+  })
+
+  it('empty arrays truly request removal of all legacy projection fields', async () => {
+    mockRequireAuth.mockResolvedValue({ userId: 'user1', role: 'user' })
+    mockGetRouteById.mockResolvedValue(SAMPLE_ROUTE)
+    mockCanEditCrag.mockResolvedValue(true)
+    mockUpdateRoute.mockResolvedValue({ ...SAMPLE_ROUTE, topoAnnotations: [] })
+    const response = await PATCH(createPatchRequest({ topoAnnotations: [] }), makeParams('42'))
+    expect(response.status).toBe(200)
+    expect(mockUpdateRoute).toHaveBeenCalledWith(42, expect.objectContaining({ topoAnnotations: [], faceId: undefined, faceArea: undefined, topoLine: undefined, topoTension: undefined }))
+  })
+
+  it.each([null, { faceId: 'wall', area: 'B', topoLine: [] }])('rejects malformed new annotations with 400: %j', async invalid => {
+    mockRequireAuth.mockResolvedValue({ userId: 'user1', role: 'user' })
+    mockGetRouteById.mockResolvedValue(SAMPLE_ROUTE)
+    mockCanEditCrag.mockResolvedValue(true)
+    const response = await PATCH(createPatchRequest({ topoAnnotations: [invalid] }), makeParams('42'))
+    expect(response.status).toBe(400)
+    expect(mockUpdateRoute).not.toHaveBeenCalled()
+  })
+
+  it.each(['42junk', '0', '-1', '9007199254740992'])('rejects malformed route IDs before DB access: %s', async id => {
+    mockRequireAuth.mockResolvedValue({ userId: 'user1', role: 'user' })
+    expect((await PATCH(createPatchRequest({ name: 'change' }), makeParams(id))).status).toBe(400)
+    expect(mockGetRouteById).not.toHaveBeenCalled()
+  })
+
   it('should validate faceId format', async () => {
     mockRequireAuth.mockResolvedValue({ userId: 'u1', role: 'admin' })
     mockGetRouteById.mockResolvedValue(SAMPLE_ROUTE)

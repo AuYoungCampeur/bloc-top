@@ -36,13 +36,15 @@ import { TopoPreview } from '@/components/editor/topo-preview'
 import { useRouteEditor } from '@/hooks/use-route-editor'
 import { useRouteCreation } from '@/hooks/use-route-creation'
 import { useDirtyGuard } from '@/hooks/use-dirty-guard'
-import type { R2FaceInfo, FaceGroup } from '@/types/face'
+import type { R2FaceInfo } from '@/types/face'
 import { useBetaManagement } from '@/hooks/use-beta-management'
 import { BetaCard } from '@/components/editor/beta-card'
 import { BetaSubmitDrawer } from '@/components/beta-submit-drawer'
 import type { BetaLink } from '@bloctop/shared/types'
 import { Play } from 'lucide-react'
 import { InlineFaceUpload } from '@/components/editor/inline-face-upload'
+import { buildFaceGroups } from '@/lib/face-state'
+import { getRouteTopoAnnotations } from '@bloctop/shared/face-references'
 
 const FullscreenTopoEditor = dynamic(
   () => import('@/components/editor/fullscreen-topo-editor'),
@@ -63,6 +65,7 @@ export default function RouteAnnotationPage() {
   const {
     crags, routes, setRoutes, selectedCragId, setSelectedCragId,
     isLoadingCrags, isLoadingRoutes, stats, updateCragAreas,
+    cragSelectionError, reloadCrags,
   } = useCragRoutes({ editorMode: true })
   const faceImageCache = useFaceImageCache()
 
@@ -196,19 +199,7 @@ export default function RouteAnnotationPage() {
   // ============ 派生数据：面组、线路过滤 ============
   const areaFaceGroups = useMemo(() => {
     if (!selectedCragId) return []
-    const map = new Map<string, FaceGroup>()
-    r2Faces.forEach(({ faceId, area }) => {
-      map.set(faceId, {
-        faceId, area, routes: [],
-        imageUrl: faceImageCache.getImageUrl({ cragId: selectedCragId, area, faceId }),
-      })
-    })
-    routes.forEach(r => {
-      if (!r.faceId) return
-      const entry = map.get(r.faceId)
-      if (entry) entry.routes.push(r)
-    })
-    let result = Array.from(map.values())
+    let result = buildFaceGroups(r2Faces, routes, selectedCragId, face => faceImageCache.getImageUrl(face))
     if (selectedArea) result = result.filter(f => f.area === selectedArea)
     return result
   }, [routes, r2Faces, selectedCragId, selectedArea, faceImageCache])
@@ -255,12 +246,16 @@ export default function RouteAnnotationPage() {
 
   const sameFaceRoutes = useMemo<MultiTopoRoute[]>(() => {
     if (!editor.selectedFaceId || !editor.showOtherRoutes) return []
-    const faceGroup = areaFaceGroups.find(f => f.faceId === editor.selectedFaceId)
+    const annotation = editor.annotations[editor.activeAnnotationIndex]
+    const faceGroup = areaFaceGroups.find(f => f.faceId === editor.selectedFaceId && f.area === annotation?.area)
     if (!faceGroup) return []
     return faceGroup.routes
-      .filter(r => r.id !== selectedRoute?.id && r.topoLine && r.topoLine.length >= 2)
-      .map(r => ({ id: r.id, name: r.name, grade: r.grade, topoLine: r.topoLine!, topoTension: r.topoTension }))
-  }, [selectedRoute, editor.selectedFaceId, areaFaceGroups, editor.showOtherRoutes])
+      .filter(r => r.id !== selectedRoute?.id)
+      .flatMap(r => {
+        const topo = getRouteTopoAnnotations(r).find(a => a.area === faceGroup.area && a.faceId === faceGroup.faceId)
+        return topo && topo.topoLine.length >= 2 ? [{ id: r.id, name: r.name, grade: r.grade, topoLine: topo.topoLine, topoTension: topo.topoTension }] : []
+      })
+  }, [selectedRoute, editor.selectedFaceId, editor.annotations, editor.activeAnnotationIndex, areaFaceGroups, editor.showOtherRoutes])
 
   // ============ 事件处理 ============
   const handleRouteClick = useCallback((route: Route) => {
@@ -332,6 +327,7 @@ export default function RouteAnnotationPage() {
         onSelect={handleSelectCrag}
         stats={stats}
       />
+      {cragSelectionError && <div className="mb-3 text-sm"><p role="alert">{cragSelectionError}</p><button onClick={reloadCrags}>重新加载岩场</button></div>}
 
       {selectedCragId && (
         <>
@@ -639,7 +635,7 @@ export default function RouteAnnotationPage() {
                     >
                       <button
                         className="px-2.5 py-1 rounded-l-full"
-                        onClick={() => { editor.setActiveAnnotationIndex(index); setShowFaceSelector(false) }}
+                        onClick={() => { editor.activateAnnotation(index); setShowFaceSelector(false) }}
                       >
                         角度{index + 1}
                       </button>
@@ -683,6 +679,7 @@ export default function RouteAnnotationPage() {
                       <FaceSelector
                         faceGroups={areaFaceGroups}
                         selectedFaceId={editor.selectedFaceId}
+                        selectedFaceArea={editor.annotations[editor.activeAnnotationIndex]?.area ?? null}
                         isLoading={isLoadingFaces}
                         onSelect={(faceId, area) => {
                           editor.addAnnotation(faceId, area)

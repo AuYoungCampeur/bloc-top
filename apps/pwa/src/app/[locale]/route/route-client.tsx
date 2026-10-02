@@ -14,20 +14,28 @@ import { RouteDetailDrawer } from '@/components/route-detail-drawer'
 import { RouteListItem } from '@/components/route-list-item'
 import { AppTabbar } from '@/components/app-tabbar'
 import type { Route, Crag } from '@/types'
+import { collectRouteFaces, matchesRouteFace, matchesRouteFaceArea } from '@/lib/route-face-filter'
+import { getFaceIdentityKey } from '@bloctop/shared/face-references'
 
 const MAX_ANIMATED_CARDS = 10
 
 interface RouteListClientProps {
   routes: Route[]
   crags: Crag[]
+  contextCityId?: string
 }
 
-export default function RouteListClient({ routes, crags }: RouteListClientProps) {
+export default function RouteListClient({ routes, crags, contextCityId }: RouteListClientProps) {
   const t = useTranslations('RouteList')
   const tCommon = useTranslations('Common')
   const tSearch = useTranslations('Search')
   const router = useRouter()
   const searchParams = useSearchParams()
+  const createFilterParams = useCallback(() => {
+    const params = new URLSearchParams(searchParams.toString())
+    if (contextCityId) params.set('city', contextCityId)
+    return params
+  }, [searchParams, contextCityId])
   const [isPending, startTransition] = useTransition()
 
   // 抽屉状态
@@ -52,6 +60,7 @@ export default function RouteListClient({ routes, crags }: RouteListClientProps)
   const searchQuery = searchParams.get(FILTER_PARAMS.QUERY) || ''
   const sortDirection = (searchParams.get(FILTER_PARAMS.SORT) as SortDirection) || DEFAULT_SORT_DIRECTION
   const selectedFace = searchParams.get(FILTER_PARAMS.FACE) || null
+  const faces = useMemo(() => collectRouteFaces(routes, selectedCrag), [routes, selectedCrag])
 
   // 计算当前路线池中实际存在的难度等级
   const availableGrades = useMemo(() => {
@@ -80,7 +89,7 @@ export default function RouteListClient({ routes, crags }: RouteListClientProps)
   // 更新 URL 参数
   const updateSearchParams = useCallback(
     (key: string, value: string | string[] | null) => {
-      const params = new URLSearchParams(searchParams.toString())
+      const params = createFilterParams()
 
       if (value === null || value === '' || (Array.isArray(value) && value.length === 0)) {
         params.delete(key)
@@ -97,7 +106,7 @@ export default function RouteListClient({ routes, crags }: RouteListClientProps)
         router.replace(newUrl, { scroll: false })
       })
     },
-    [router, searchParams, startTransition]
+    [router, createFilterParams, startTransition]
   )
 
   // 处理岩场筛选（单选）— 切换岩场时清除 face 筛选
@@ -105,7 +114,7 @@ export default function RouteListClient({ routes, crags }: RouteListClientProps)
   const handleCragSelect = useCallback(
     (cragId: string) => {
       const newCrag = cragId === selectedCrag ? null : cragId
-      const params = new URLSearchParams(searchParams.toString())
+      const params = createFilterParams()
 
       if (newCrag) {
         params.set(FILTER_PARAMS.CRAG, newCrag)
@@ -124,15 +133,19 @@ export default function RouteListClient({ routes, crags }: RouteListClientProps)
         router.replace(newUrl, { scroll: false })
       })
     },
-    [selectedCrag, searchParams, router, startTransition]
+    [selectedCrag, createFilterParams, router, startTransition]
   )
 
   // 处理区域筛选
   const handleAreaChange = useCallback(
     (area: string | null) => {
-      updateSearchParams(FILTER_PARAMS.AREA, area)
+      const params = createFilterParams()
+      if (area) params.set(FILTER_PARAMS.AREA, area)
+      else params.delete(FILTER_PARAMS.AREA)
+      params.delete(FILTER_PARAMS.FACE)
+      startTransition(() => router.replace(`/route${params.size ? `?${params}` : ''}`, { scroll: false }))
     },
-    [updateSearchParams]
+    [createFilterParams, router, startTransition]
   )
 
   // 处理岩面筛选
@@ -162,7 +175,7 @@ export default function RouteListClient({ routes, crags }: RouteListClientProps)
 
   // 清除所有筛选
   const handleClearAllFilters = useCallback(() => {
-    const params = new URLSearchParams(searchParams.toString())
+    const params = createFilterParams()
     params.delete(FILTER_PARAMS.CRAG)
     params.delete(FILTER_PARAMS.AREA)
     params.delete(FILTER_PARAMS.FACE)
@@ -172,7 +185,7 @@ export default function RouteListClient({ routes, crags }: RouteListClientProps)
     startTransition(() => {
       router.replace(queryString ? `/route?${queryString}` : '/route', { scroll: false })
     })
-  }, [searchParams, router, startTransition])
+  }, [createFilterParams, router, startTransition])
 
   // 处理线路卡片点击
   const handleRouteClick = useCallback((route: Route) => {
@@ -200,8 +213,9 @@ export default function RouteListClient({ routes, crags }: RouteListClientProps)
   const activeFilterTags = useMemo(() => {
     const tags: { label: string; onRemove: () => void }[] = []
     if (selectedFace) {
+      const face = faces.find(item => getFaceIdentityKey(item) === selectedFace || item.faceId === selectedFace)
       tags.push({
-        label: selectedFace,
+        label: face ? `${face.area} · ${face.faceId}` : selectedFace,
         onRemove: () => updateSearchParams(FILTER_PARAMS.FACE, null),
       })
     }
@@ -223,7 +237,7 @@ export default function RouteListClient({ routes, crags }: RouteListClientProps)
       })
     }
     return tags
-  }, [selectedFace, selectedGrades, searchQuery, t, updateSearchParams])
+  }, [selectedFace, faces, selectedGrades, searchQuery, updateSearchParams])
 
   // 筛选逻辑
   const filteredRoutes = useMemo(() => {
@@ -234,14 +248,11 @@ export default function RouteListClient({ routes, crags }: RouteListClientProps)
     }
 
     if (selectedArea) {
-      result = result.filter((r) => r.area === selectedArea)
+      result = result.filter((r) => matchesRouteFaceArea(r, selectedArea))
     }
 
     if (selectedFace) {
-      result = result.filter((r) => {
-        const key = r.faceId || `${r.cragId}:${r.area}`
-        return key === selectedFace
-      })
+      result = result.filter((r) => matchesRouteFace(r, selectedFace))
     }
 
     if (selectedGrades.length > 0) {
@@ -272,6 +283,7 @@ export default function RouteListClient({ routes, crags }: RouteListClientProps)
       >
         {/* 顶部筛选栏 — 全宽 */}
         <RouteFilterBar
+          faces={faces}
           crags={crags}
           selectedCrag={selectedCrag}
           onCragSelect={handleCragSelect}
@@ -281,7 +293,6 @@ export default function RouteListClient({ routes, crags }: RouteListClientProps)
           onFaceSelect={handleFaceSelect}
           sortDirection={sortDirection}
           onToggleSort={toggleSortDirection}
-          filteredCount={filteredRoutes.length}
           activeFilterTags={activeFilterTags}
           allLabel={tCommon('all')}
           totalCountLabel={t('totalCount', { count: filteredRoutes.length })}

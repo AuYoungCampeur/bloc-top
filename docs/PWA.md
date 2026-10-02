@@ -1,6 +1,6 @@
 # 用户端、Topo 与缓存数据流
 
-> 核对日期：2026-09-20。用户端是后台内容的消费端；修改后台时需要检查这里的兼容性。
+> 核对日期：2026-10-02。用户端是后台内容的消费端；修改后台时需要检查这里的兼容性。
 
 ## 用户端范围
 
@@ -26,7 +26,9 @@
 
 图片由 `packages/ui/src/face-image/` 的 Provider、hook 和缓存服务生成 URL。PWA 原有 `src/lib/face-image-cache` / `hooks/use-face-image` 主要作为兼容入口。使用岩面来源时必须包含 cragId、area、faceId，避免同名岩面混淆。
 
-旧的顶层 faceId 仍被部分辅助函数消费。新功能不能只验证抽屉里的多图轮播，也要检查搜索入口、同岩面分组、离线下载和后台图片管理。
+用户端岩面缩略图从已加载的公开线路引用派生，不请求需要编辑权限的 `/api/faces`。新的 face 筛选链接包含完整三元身份，能选择多图的非第一张；旧 bare faceId 链接仍兼容，重复名称的旧链接可能包含多个匹配。
+
+共享 face identity 帮助函数同时供图片 URL、同岩面分组、离线下载和后台管理消费；现代多图按对应图片投影几何。修改引用时仍需检查这些入口，不能只验证抽屉里的轮播。
 
 ## 五种缓存不能混为一谈
 
@@ -52,14 +54,20 @@
 
 ## 离线资料与当前限制
 
-实现入口：[offline-storage.ts](../apps/pwa/src/lib/offline-storage.ts)、[use-offline-download.ts](../apps/pwa/src/hooks/use-offline-download.ts)、`offline-download-provider.tsx`。
+实现入口：[offline-snapshot.ts](../apps/pwa/src/lib/offline-snapshot.ts)、[offline-download.ts](../apps/pwa/src/lib/offline-download.ts)、[offline-storage.ts](../apps/pwa/src/lib/offline-storage.ts)、[offline-browser.tsx](../apps/pwa/src/components/offline-browser.tsx)。`use-offline-download` 和 provider 将下载进度同步至入口。
 
-- IndexedDB `offline-crags` 保存岩场、线路和下载信息。
-- Cache API `offline-crag-images` 保存图片。
-- localStorage `offline-crags-meta` 保存轻量状态。
-- `/api/crags/[id]/version` 当前只返回线路数量，stale 判断主要检测新增线路，不是内容 hash/版本游标，无法完整发现文字修改、图片更新或删除。
-- `collectImageUrls()` 仍从旧的线路名路径生成 Topo 图片 URL，没有遍历 `topoAnnotations`。因此多图在线展示的存在，不证明多图离线可用。
+- `GET /api/crags/[id]/offline` 返回 `no-store` 的完整公开快照；内容 hash 包括岩场、线路和 `mediaRevision`，不再只用线路数判断过期。同数修改和删除也能发现。
+- manifest 按实际封面、新旧岩面和所有多图引用去重，添加 `offlineRevision` URL 参数。该图片请求直接走网络，防止 SW 在线缓存污染下载重试。
+- 图片必须可读、HTTP 成功、类型正确且能解码；opaque/CORS 失败不计成功。进度区分处理数、缓存数、失败数，任一必需图片失败不发布新快照，旧下载仍可用。
+- IndexedDB `offline-crags` v2 保存岩场、线路、图片 manifest 和下载信息；在事务完成后才发布可用状态。Cache API `offline-crag-images` 保存通过检查的图片；localStorage 元数据供轻量展示，同标签页通过事件更新。
+- 离线入口 `/{locale}/offline?offlineCrag=id&offlineRoute=number` 从 IndexedDB/Cache 读取详情和多图 Topo，不经 Next Image optimizer 或在线 API。旧下载允许浏览并提示更新修复。
+- 删除入口统一清理快照、图片和元数据；旧版本/删除后的图片清理任务保存在 IndexedDB，失败保留待重试任务。两个独立存储不构成跨标签页事务；并发下载/删除仍需后续验收。
+- 同标签页每岩场的下载/删除串行，删除取消进行中和已排队下载；网络与解码请求有超时，迟到响应不能发布被取消快照。旧标签页阻塞 IDB 升级时明确反馈，释放失败单例供重试；版本变化关闭旧连接。离线指示条使用原生链接进入本地资料壳。
 - `next.config.ts` 在开发环境关闭 Service Worker；普通 `pnpm dev` 不能验收生产离线效果。
+
+离线下载使用浏览器可读的跨域 `fetch`，图片能在 `<img>` 中显示并不证明它可下载到 Cache API。2026-10-02 实查发现生产 R2 bucket 没有 CORS，已配置 GET/HEAD 规则：origins 为 `https://bouldering.top`、`https://www.bouldering.top`、`https://editor.bouldering.top`、`http://localhost:3000`、`http://localhost:3001`；允许请求 headers `*`、暴露 `ETag`、preflight 缓存 3600 秒。没有修改图片或数据库。
+
+配置后在 www、editor、localhost:3000 三个浏览器 origin 对同一现有公开图片执行实际 CORS GET、解码、Cache API 保存及断网解码，全部成功，图片响应未 mock。这只验证采样图片和这些 origin；整包下载、其他缓存变体和 Safari 仍以各自业务验收为准。自定义域名的旧缓存可能需要清理后获得新的 CORS headers，参见 [Cloudflare R2 CORS 文档](https://developers.cloudflare.com/r2/buckets/cors/)。
 
 ## 天气与语言
 

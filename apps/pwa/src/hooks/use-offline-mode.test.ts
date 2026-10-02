@@ -22,6 +22,7 @@ vi.mock('@/lib/offline-storage', () => ({
   isOfflineAvailable: vi.fn((cragId: string) => cragId === 'downloaded-crag'),
   getMeta: vi.fn(() => mockMeta),
   META_STORAGE_KEY: 'offline-crags-meta',
+  OFFLINE_META_EVENT: 'offline-meta-changed',
 }))
 
 // 需要在 mock 之后导入

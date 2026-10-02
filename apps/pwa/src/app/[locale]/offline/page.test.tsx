@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import OfflinePage from './page'
+import { getAllOfflineCrags, OfflineDBBlockedError } from '@/lib/offline-storage'
 
 // Mock offline-storage
 const mockOfflineCrags = [
@@ -31,6 +32,8 @@ const mockOfflineCrags = [
 
 vi.mock('@/lib/offline-storage', () => ({
   getAllOfflineCrags: vi.fn(() => Promise.resolve(mockOfflineCrags)),
+  OFFLINE_META_EVENT: 'offline-meta-changed',
+  OfflineDBBlockedError: class OfflineDBBlockedError extends Error {},
 }))
 
 // Mock router.push
@@ -61,6 +64,7 @@ vi.mock('@/components/app-tabbar', () => ({
 describe('OfflinePage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    window.history.replaceState(null, '', '/zh/offline')
     // Mock navigator.onLine
     Object.defineProperty(navigator, 'onLine', {
       value: false,
@@ -91,7 +95,7 @@ describe('OfflinePage', () => {
   })
 
   describe('岩场卡片点击行为', () => {
-    it('点击岩场卡片跳转到线路页面（带岩场过滤参数）', async () => {
+    it('点击岩场后在离线壳内读取完整线路，并且不请求服务端页面', async () => {
       const user = userEvent.setup()
       render(<OfflinePage />)
 
@@ -105,7 +109,12 @@ describe('OfflinePage', () => {
       await user.click(cragButton)
 
       // 验证跳转到正确的 URL
-      expect(mockPush).toHaveBeenCalledWith('/zh/route?crag=ba-jing-cun')
+      expect(mockPush).not.toHaveBeenCalled()
+      expect(window.location.search).toBe('?offlineCrag=ba-jing-cun')
+      expect(screen.getByText('测试描述')).toBeTruthy()
+      await user.click(screen.getByRole('button', { name: 'V2 · 线路1' }))
+      expect(screen.getByRole('heading', { name: '线路1' })).toBeTruthy()
+      expect(window.location.search).toBe('?offlineCrag=ba-jing-cun&offlineRoute=1')
     })
 
     it('不再跳转到离线岩场详情页', async () => {
@@ -122,6 +131,15 @@ describe('OfflinePage', () => {
       // 确保不会跳转到旧的离线详情页
       expect(mockPush).not.toHaveBeenCalledWith(expect.stringContaining('/offline/crag/'))
     })
+  })
+
+  it('explains blocked upgrade instead of claiming no offline downloads exist', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.mocked(getAllOfflineCrags).mockRejectedValueOnce(new OfflineDBBlockedError())
+    render(<OfflinePage />)
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('storageBlocked'))
+    expect(screen.queryByText('noDownloads')).toBeNull()
+    consoleError.mockRestore()
   })
 
   describe('基础渲染', () => {

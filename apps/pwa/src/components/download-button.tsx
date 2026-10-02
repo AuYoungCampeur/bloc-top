@@ -13,7 +13,8 @@
 import { memo, useCallback, useMemo, useEffect, useRef } from 'react'
 import { useTranslations } from 'next-intl'
 import { Download, Check, AlertCircle, Loader2, RefreshCw } from 'lucide-react'
-import type { Crag, Route, DownloadProgress } from '@/types'
+import type { Crag, Route } from '@/types'
+import type { OfflineDownloadProgress as DownloadProgress } from '@/lib/offline-download'
 import { cn } from '@/lib/utils'
 import { useToast } from '@/components/ui/toast'
 
@@ -99,7 +100,7 @@ export function DownloadButton({
 
   // 计算当前状态 (stale 优先级: downloading > stale > completed)
   const status = useMemo(() => {
-    if (progress?.cragId === crag.id) {
+    if (progress?.cragId === crag.id && progress.status !== 'completed') {
       return progress.status
     }
     if (isDownloaded && updateInfo?.isStale) {
@@ -122,12 +123,12 @@ export function DownloadButton({
     if (progress?.cragId === crag.id) {
       if (prevStatusRef.current === 'downloading' && progress.status === 'completed') {
         showToast(
-          `「${crag.name}」${t('downloaded')}，${routes.length} 条线路可离线访问`,
+          `「${crag.name}」${t('downloaded')}，${progress.routeCount ?? routes.length} ${t('routesAvailable')}`,
           'success',
           4000
         )
       } else if (prevStatusRef.current === 'downloading' && progress.status === 'failed') {
-        showToast(`${t('failed')}: ${progress.error || '未知错误'}`, 'error', 4000)
+        showToast(t(progress.error === 'images' ? 'imagesFailed' : progress.error === 'snapshot' ? 'snapshotFailed' : progress.error === 'quota' ? 'quotaExceeded' : progress.error === 'cancelled' ? 'cancelled' : progress.error === 'db-blocked' ? 'storageBlocked' : 'storageFailed', { count: progress.failedImages ?? 0 }), 'error', 6000)
       }
       prevStatusRef.current = progress.status
     }
@@ -138,7 +139,7 @@ export function DownloadButton({
     e.preventDefault()
     e.stopPropagation()
 
-    if (status === 'downloading') return
+    if (status === 'downloading' || progress?.status === 'downloading') return
 
     if (status === 'completed' && onDelete) {
       // 已下载状态，长按或点击可以触发删除
@@ -154,7 +155,7 @@ export function DownloadButton({
         console.error('Download failed:', error)
       }
     }
-  }, [status, onDownload, onDelete, crag, routes])
+  }, [status, onDownload, onDelete, crag, routes, progress])
 
   // 已下载徽章样式
   if (variant === 'badge' && isDownloaded && status !== 'downloading') {
@@ -197,7 +198,6 @@ export function DownloadButton({
     <button
       type="button"
       onClick={handleClick}
-      disabled={status === 'downloading'}
       className={cn(
         'relative flex items-center justify-center w-8 h-8 rounded-full',
         'transition-all duration-200',
@@ -217,6 +217,8 @@ export function DownloadButton({
         ...(status === 'failed' ? { backgroundColor: 'var(--theme-error)' } : {}),
         ...style,
       }}
+      disabled={progress?.status === 'downloading'}
+      aria-label={status === 'failed' ? t('retry') : undefined}
       title={
         status === 'idle' ? t('download') :
           status === 'downloading' ? `${t('downloading')} ${progressPercent}%` :

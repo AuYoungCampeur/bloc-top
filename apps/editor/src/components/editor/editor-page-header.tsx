@@ -17,6 +17,8 @@ interface EditorPageHeaderProps {
   listLabel: string
   /** header 右侧自定义内容 (如 faces 的刷新按钮) */
   rightContent?: ReactNode
+  /** Override the desktop back link when the page must protect a draft. */
+  onBack?: () => void
 }
 
 export function EditorPageHeader({
@@ -26,6 +28,7 @@ export function EditorPageHeader({
   onBackToList,
   listLabel,
   rightContent,
+  onBack,
 }: EditorPageHeaderProps) {
   return (
     <header
@@ -46,14 +49,23 @@ export function EditorPageHeader({
             <span className="font-medium">{listLabel}</span>
           </button>
         ) : null}
-        <Link
+        {onBack ? (
+          <button
+            onClick={onBack}
+            className={`flex items-center gap-2 min-h-[44px] -ml-2 px-2 rounded-xl transition-all duration-200 active:scale-95 ${isDetailMode ? 'hidden lg:flex' : ''}`}
+            style={{ color: 'var(--theme-primary)' }}
+          >
+            <ArrowLeft className="w-5 h-5" />
+            <span className="font-medium">返回</span>
+          </button>
+        ) : <Link
           href="/"
           className={`flex items-center gap-2 min-h-[44px] -ml-2 px-2 rounded-xl transition-all duration-200 active:scale-95 ${isDetailMode ? 'hidden lg:flex' : ''}`}
           style={{ color: 'var(--theme-primary)' }}
         >
           <ArrowLeft className="w-5 h-5" />
           <span className="font-medium">返回</span>
-        </Link>
+        </Link>}
 
         {/* 中间: 图标 + 标题 */}
         <div className="flex items-center gap-2">

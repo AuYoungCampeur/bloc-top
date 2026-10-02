@@ -1,6 +1,6 @@
 # 认证与权限
 
-> 认证环境与 Beta API 更新于 2026-10-02；其他权限描述基于 2026-09-20 的源码检查。以当前实现和验证记录为准。
+> 认证环境、缓存、创建者授权与 Beta API 更新于 2026-10-02。描述源码合约；发布与实际验收见 [PRODUCT.md](PRODUCT.md)。
 
 ## 登录与共享会话
 
@@ -11,6 +11,7 @@ PWA 提供 Magic Link（Resend 邮件）、邮箱密码、Passkey 登录界面�
 - 两端均提供 `/api/auth/[...all]`；Editor 没有 Magic Link 插件，登录界面在 PWA。
 - 两端通过 MongoDB 的认证集合共享会话；生产使用 `.bouldering.top` 域 Cookie，localhost 使用相同名称的 host-only Cookie（Cookie 不按端口隔离）。需要一致的数据库和 `BETTER_AUTH_SECRET`。
 - `getAuth()` 与 MongoDB 连接均为懒初始化，避免模块加载立即访问数据库；这不保证页面构建阶段完全不访问数据库。
+- 两端认证 GET/POST 共用 [auth-route](../packages/shared/src/auth-route/index.ts)，保留 Cookie/重定向并为成功和错误响应设置 `private, no-store`。初始 MongoDB 连接失败会释放失败缓存，让后续请求能重试。
 
 当前配置：Magic Link 10 分钟有效，session 30 天、一天更新一次，禁用 session Cookie 数据缓存，better-auth 请求限流窗口 60 秒/10 次。Passkey 的生产 RP ID 为 `bouldering.top`，开发为 `localhost`；两端共同信任 localhost 3000/3001 的开发 origin。
 
@@ -34,9 +35,9 @@ PWA 登录页在服务端使用与认证实例一致的 `trustedOrigins` 检查�
 权限函数位于 [permissions.ts](../packages/shared/src/permissions.ts)：
 
 - `canCreateCrag()`：仅 admin。
-- `canAccessEditor()`：admin 或存在任意岩场授权。
-- `getEditableCragIds()`：admin 返回 `all`，其余按授权返回岩场 ID。
-- `canEditCrag()`：admin 或目标岩场授权；额外 createdBy 回退存在与 `_id` 存储不匹配的问题。
+- `canAccessEditor()`：admin，或拥有实际存在的获授权/自己创建的岩场；孤儿授权不单独授予入口。
+- `getEditableCragIds()`：admin 返回 `all`，其余返回实际存在的授权/创建者岩场 ID。
+- `canEditCrag()`：admin 或目标岩场授权；createdBy 回退使用 `_id`。该函数本身不保证岩场存在，写入 handler 还需核实目标。
 - `canManagePermissions()` / `canDeleteCrag()`：仅 admin。
 
 共享文件也定义了 Access Control statement/roles，但当前两端 `admin()` 初始化没有传入这组自定义定义；业务岩场隔离依靠 API 显式调用上述函数，不是自动从 statement 生效。
@@ -49,7 +50,9 @@ PWA 登录页在服务端使用与认证实例一致的 `trustedOrigins` 检查�
 
 因此，页面保护不能替代 API 权限检查；隐藏按钮也不能保护接口。公开 GET 和后台 GET 混合存在，详见[后台 API 清单](ADMIN.md)。
 
-创建岩场当前由 admin 执行，同时写 `createdBy` 和 manager 授权记录。两次写入没有事务包裹，应考虑第二步失败后的恢复行为。授权集合有索引创建帮助函数，但未连接数据库核实索引是否已部署。
+Editor 创建岩场仅 admin 执行；共享服务在同一 MongoDB transaction 中写 `createdBy` 和 manager 授权记录，需要支持事务的数据库。相同创建者和初始字段重试不会替换其他已有岩场。Editor 权限名单读取/分配/移除保持 admin-only，分配前验证岩场和用户存在。PWA 保留的创建与授权 API 尚未接入全部相同验证；两端共用的授权数据服务已更新，入口政策仍须继续统一。
+
+2026-10-02 生产只读检查未发现 userId+cragId 唯一索引。新授权与创建者授权统一采用稳定 `_id` 和原子 upsert，重复返回冲突；既有 ObjectId 主键 grant 按用户/岩场匹配。撤销删除该用户/岩场的所有匹配记录，包括历史重复和 ObjectId 字符串大小写变体。PWA 分配/撤销接口拒绝非字符串身份，数据服务在查询前再次校验，JSON 操作符对象不会进入批量删除条件。本轮不执行生产索引、历史授权清理或迁移；代码约束不能代替实际索引/数据审计。
 
 ## 开发中必须保留的细节
 

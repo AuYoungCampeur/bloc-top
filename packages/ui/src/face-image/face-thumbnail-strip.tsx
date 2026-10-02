@@ -5,9 +5,7 @@ import { useTranslations } from 'next-intl'
 import { Image as ImageIcon } from 'lucide-react'
 import { FilterChip, FilterChipGroup } from '../components/filter-chip'
 import { useFaceImageCache } from './use-face-image'
-
-/** 模块级缓存: cragId → faces 列表。同一 session 内切回已访问岩场时命中缓存，跳过 API 请求。 */
-const facesCache = new Map<string, { faceId: string; area: string }[]>()
+import { getFaceIdentityKey } from '@bloctop/shared/face-references'
 
 interface FaceGroup {
   key: string
@@ -17,6 +15,7 @@ interface FaceGroup {
 }
 
 interface FaceThumbnailStripProps {
+  faces: { faceId: string; area: string }[]
   selectedCrag: string
   selectedFace: string | null
   onFaceSelect: (faceId: string | null) => void
@@ -62,9 +61,10 @@ const FaceThumbnail = memo(function FaceThumbnail({ src, alt }: { src: string; a
 
 /**
  * 岩面缩略图横向滑动组件
- * 选中某个岩场后，从 API 获取 R2 上实际存在的岩面图片列表
+ * 选中岩场后展示公开线路引用中的岩面；不读取管理专用 R2 API。
  */
 export const FaceThumbnailStrip = memo(function FaceThumbnailStrip({
+  faces,
   selectedCrag,
   selectedFace,
   onFaceSelect,
@@ -81,14 +81,13 @@ export const FaceThumbnailStrip = memo(function FaceThumbnailStrip({
   // URL 状态追上后清除 optimistic 状态
   useEffect(() => {
     setOptimisticFace(null)
-  }, [selectedFace])
+  }, [selectedFace, selectedCrag, controlledArea])
   const displayFace = optimisticFace !== null ? optimisticFace : selectedFace
 
   // 订阅当前岩场下所有岩面的缓存失效事件
   useEffect(() => {
     if (!selectedCrag) return
     return cache.subscribeByPrefix(`${selectedCrag}/`, () => {
-      facesCache.delete(selectedCrag)
       setCacheVersion(v => v + 1)
     })
   }, [selectedCrag, cache])
@@ -106,108 +105,46 @@ export const FaceThumbnailStrip = memo(function FaceThumbnailStrip({
   const setSelectedArea = useCallback(
     (area: string | null) => {
       if (isControlled) {
+        // The parent updates area + face in one URL transaction.
         onAreaChange?.(area)
       } else {
         setAreaState({ cragId: selectedCrag, area })
-      }
-      if (selectedFace) {
-        onFaceSelect(null)
+        if (selectedFace) onFaceSelect(null)
       }
     },
     [selectedCrag, selectedFace, onFaceSelect, isControlled, onAreaChange]
   )
 
-  // 从 API 获取 R2 上真实存在的 face 列表
-  // 用 { cragId, faces } 单一状态避免 effect 内同步 setState
-  const [facesState, setFacesState] = useState<{
-    cragId: string
-    faces: { faceId: string; area: string }[]
-    loading: boolean
-  }>({ cragId: '', faces: [], loading: false })
-
-  useEffect(() => {
-    if (!selectedCrag) return
-
-    // 预加载缩略图到浏览器 HTTP 缓存（浏览器会自动去重已加载的图片）
-    const preloadThumbnails = (faces: { faceId: string; area: string }[]) => {
-      faces.slice(0, 8).forEach((f) => {
-        const url = cache.getImageUrl({ cragId: selectedCrag, area: f.area, faceId: f.faceId })
-        const img = new window.Image()
-        img.src = url
-      })
-    }
-
-    // 命中缓存 → 立即返回，跳过 API 请求
-    const cached = facesCache.get(selectedCrag)
-    if (cached) {
-      setFacesState({ cragId: selectedCrag, faces: cached, loading: false })
-      preloadThumbnails(cached)
-      return
-    }
-
-    let cancelled = false
-
-    fetch(`/api/faces?cragId=${encodeURIComponent(selectedCrag)}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (!cancelled && data.success) {
-          facesCache.set(selectedCrag, data.faces)
-          setFacesState({ cragId: selectedCrag, faces: data.faces, loading: false })
-          preloadThumbnails(data.faces)
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setFacesState({ cragId: selectedCrag, faces: [], loading: false })
-      })
-
-    return () => { cancelled = true }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- cache is a stable singleton from context
-  }, [selectedCrag])
-
-  // 派生状态：crag 不匹配时视为 loading
-  const r2Faces = useMemo(
-    () => facesState.cragId === selectedCrag ? facesState.faces : [],
-    [facesState, selectedCrag]
-  )
-  const loading = selectedCrag !== '' && facesState.cragId !== selectedCrag
-
   // 提取唯一 area 列表 (保持原始顺序)
   const uniqueAreas = useMemo(() => {
     const seen = new Set<string>()
     const areas: string[] = []
-    for (const { area } of r2Faces) {
+    for (const { area } of faces) {
       if (!seen.has(area)) {
         seen.add(area)
         areas.push(area)
       }
     }
     return areas
-  }, [r2Faces])
+  }, [faces])
 
-  // 基于 API 数据生成 face groups (通过缓存层获取版本感知的 URL)
+  // 公开引用生成 face groups (通过缓存层获取版本感知的 URL)
   // cacheVersion 变化时强制重算 → 获取带新时间戳的 URL
   const allFaceGroups = useMemo<FaceGroup[]>(() => {
-    return r2Faces.map(({ faceId, area }) => ({
-      key: faceId,
+    return faces.map(({ faceId, area }) => ({
+      key: getFaceIdentityKey({ cragId: selectedCrag, area, faceId }),
       label: faceId,
       area,
       image: cache.getImageUrl({ cragId: selectedCrag, area, faceId }),
     }))
     // eslint-disable-next-line react-hooks/exhaustive-deps -- cacheVersion is an intentional trigger dep for cache invalidation
-  }, [r2Faces, selectedCrag, cache, cacheVersion])
+  }, [faces, selectedCrag, cache, cacheVersion])
 
   // 按选中 area 过滤
   const faceGroups = useMemo(() => {
     if (!selectedArea) return allFaceGroups
     return allFaceGroups.filter((g) => g.area === selectedArea)
   }, [allFaceGroups, selectedArea])
-
-  // US-004: 单岩面区域自动选中
-  useEffect(() => {
-    if (faceGroups.length !== 1) return
-    if (selectedFace !== null) return
-    onFaceSelect(faceGroups[0].key)
-  }, [faceGroups, selectedFace, onFaceSelect])
 
   const handleAllClick = useCallback(() => {
     setOptimisticFace(null)
@@ -224,24 +161,6 @@ export const FaceThumbnailStrip = memo(function FaceThumbnailStrip({
   )
 
   if (!selectedCrag) return null
-
-  // 加载中显示 skeleton strip
-  if (loading) {
-    return (
-      <div className="overflow-x-auto scrollbar-hide">
-        <div className="flex gap-2 px-4 pb-2" style={{ minWidth: 'min-content' }}>
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="flex-shrink-0 flex flex-col items-center gap-1">
-              <div
-                className="w-16 h-12 skeleton-shimmer"
-                style={{ borderRadius: 'var(--theme-radius-md)' }}
-              />
-            </div>
-          ))}
-        </div>
-      </div>
-    )
-  }
 
   if (allFaceGroups.length === 0) return null
 
@@ -303,6 +222,8 @@ export const FaceThumbnailStrip = memo(function FaceThumbnailStrip({
           return (
             <button
               key={group.key}
+              aria-label={`${group.area} · ${group.label}`}
+              aria-pressed={isSelected}
               onClick={() => handleFaceClick(group.key)}
               className="flex-shrink-0 flex flex-col items-center gap-1 transition-all active:scale-95"
             >

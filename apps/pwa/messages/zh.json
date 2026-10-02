@@ -218,7 +218,20 @@
     "confirmDelete": "确定删除 {name} 的离线数据？",
     "deleteSuccess": "已删除离线数据",
     "notSupported": "您的浏览器不支持离线功能",
-    "updateAvailable": "有更新"
+    "updateAvailable": "有更新",
+    "routesAvailable": "条线路可离线访问",
+    "imagesFailed": "有 {count} 张图片未保存，可能是网络、图片权限或空间不足。请重试。",
+    "snapshotFailed": "无法获取完整线路数据，请联网重试。",
+    "storageFailed": "离线存储失败，请检查设备可用空间后重试。",
+    "imageUnavailable": "图片尚未可靠保存，请联网重新下载。",
+    "back": "返回",
+    "legacyRepair": "这是旧版离线数据。请联网重新下载以完善图片与线路信息。",
+    "routeMissing": "本地快照中没有这条线路。",
+    "localRoutes": "本地线路（{count} 条）",
+    "onlineFeaturesUnavailable": "天气、地图与 Beta 视频需要联网。",
+    "quotaExceeded": "存储空间不足。请删除部分离线内容后重试。",
+    "cancelled": "下载已取消。",
+    "storageBlocked": "离线数据库升级被其他页面阻塞。请关闭其他寻岩记页面后重试。"
   },
   "OfflinePage": {
     "title": "离线内容",
@@ -262,7 +275,8 @@
     "cragInfo": "{routes} 条线路 · {images} 张图片",
     "delete": "删除",
     "confirmDelete": "确定删除 {name} 的离线数据？删除后需重新下载。",
-    "deleteHint": "删除离线数据后，该岩场在离线时将无法访问。可随时重新下载。"
+    "deleteHint": "删除离线数据后，该岩场在离线时将无法访问。可随时重新下载。",
+    "deleteFailed": "未能完整删除离线数据，请重试。"
   },
   "InstallCard": {
     "title": "添加到主屏幕",

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   Users,
   Plus,
@@ -43,11 +43,13 @@ function PermissionRow({
   canManage,
   onRemove,
   isRemoving,
+  removeDisabled,
 }: {
   permission: PermissionRecord
   canManage: boolean
   onRemove: (userId: string) => void
   isRemoving: boolean
+  removeDisabled: boolean
 }) {
   return (
     <div
@@ -104,7 +106,7 @@ function PermissionRow({
         <button
           type="button"
           onClick={() => onRemove(permission.userId)}
-          disabled={isRemoving}
+          disabled={isRemoving || removeDisabled}
           className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 active:scale-90 disabled:opacity-50"
           style={{
             backgroundColor: 'color-mix(in srgb, var(--theme-error) 10%, transparent)',
@@ -135,35 +137,56 @@ export function CragPermissionsPanel({
   canManage,
 }: CragPermissionsPanelProps) {
   const { showToast } = useToast()
-  const [permissions, setPermissions] = useState<PermissionRecord[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  const [result, setResult] = useState<{ cragId: string; permissions: PermissionRecord[]; loading: boolean; error: string | null } | null>(null)
+  const permissions = useMemo(() => result?.cragId === cragId ? result.permissions : [], [result, cragId])
+  const isLoading = canManage && (result?.cragId !== cragId || result.loading)
+  const loadError = result?.cragId === cragId ? result.error : null
   const [removingUserId, setRemovingUserId] = useState<string | null>(null)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
+  const contextKey = `${canManage}:${cragId}`
+  const contextRef = useRef(contextKey)
+  contextRef.current = contextKey
+  const loadVersionRef = useRef(0)
+  const loadAbortRef = useRef<AbortController | null>(null)
+  const removingRef = useRef(false)
 
   // Fetch permissions
   const fetchPermissions = useCallback(async () => {
+    if (!canManage || contextRef.current !== contextKey) return
+    loadAbortRef.current?.abort()
+    const controller = new AbortController()
+    loadAbortRef.current = controller
+    const version = ++loadVersionRef.current
+    const isCurrent = () => !controller.signal.aborted && contextRef.current === contextKey && loadVersionRef.current === version
+    setResult({ cragId, permissions: [], loading: true, error: null })
     try {
       const res = await fetch(
-        `/api/crag-permissions?cragId=${encodeURIComponent(cragId)}`
+        `/api/crag-permissions?cragId=${encodeURIComponent(cragId)}`,
+        { signal: controller.signal },
       )
       const data = await res.json()
-      if (data.success) {
-        setPermissions(data.permissions)
+      if (!res.ok || !data.success || !Array.isArray(data.permissions)) throw new Error(data.error || '获取权限列表失败')
+      if (isCurrent()) {
+        setResult({ cragId, permissions: data.permissions, loading: false, error: null })
       }
-    } catch {
-      // Silent fail on initial load — panel will show empty state
-    } finally {
-      setIsLoading(false)
+    } catch (error) {
+      if (isCurrent()) setResult({ cragId, permissions: [], loading: false, error: error instanceof Error ? error.message : '获取权限列表失败' })
     }
-  }, [cragId])
+  }, [cragId, canManage, contextKey])
 
   useEffect(() => {
     fetchPermissions()
+    setIsDrawerOpen(false)
+    return () => { loadAbortRef.current?.abort(); loadVersionRef.current += 1 }
   }, [fetchPermissions])
 
   // Remove manager
   const handleRemove = useCallback(
     async (userId: string) => {
+      if (!canManage || removingRef.current || contextRef.current !== contextKey || isLoading || loadError) return
+      removingRef.current = true
+      loadAbortRef.current?.abort()
+      loadVersionRef.current += 1
       setRemovingUserId(userId)
 
       try {
@@ -174,20 +197,19 @@ export function CragPermissionsPanel({
         })
 
         const data = await res.json()
-        if (!data.success) {
-          showToast(data.error || '移除失败', 'error')
-          return
-        }
+        if (!res.ok || !data.success) throw new Error(data.error || '移除失败')
+        if (contextRef.current !== contextKey) return
 
         showToast('已移除管理员', 'success')
-        setPermissions((prev) => prev.filter((p) => p.userId !== userId))
-      } catch {
-        showToast('移除失败', 'error')
+        setResult(prev => prev?.cragId === cragId ? { ...prev, permissions: prev.permissions.filter(p => p.userId !== userId) } : prev)
+      } catch (error) {
+        if (contextRef.current === contextKey) showToast(error instanceof Error ? error.message : '移除失败', 'error')
       } finally {
+        removingRef.current = false
         setRemovingUserId(null)
       }
     },
-    [cragId, showToast]
+    [cragId, showToast, canManage, contextKey, isLoading, loadError]
   )
 
   // Existing user IDs for filtering search results (memoized for stable reference)
@@ -198,6 +220,8 @@ export function CragPermissionsPanel({
 
   // All permissions are 'manager' now, sort by creation date (natural order)
   const sortedPermissions = permissions
+
+  if (!canManage) return <p className="text-sm p-4" style={{ color: 'var(--theme-on-surface-variant)' }}>岩场权限名单仅系统管理员可查看和管理。</p>
 
   return (
     <div
@@ -225,6 +249,7 @@ export function CragPermissionsPanel({
           <button
             type="button"
             onClick={() => setIsDrawerOpen(true)}
+            disabled={isLoading || !!loadError}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full transition-all duration-200 active:scale-95"
             style={{
               backgroundColor:
@@ -249,7 +274,8 @@ export function CragPermissionsPanel({
       )}
 
       {/* Empty state */}
-      {!isLoading && permissions.length === 0 && (
+      {!isLoading && loadError && <div><p role="alert">{loadError}</p><button onClick={fetchPermissions}>重试加载权限</button></div>}
+      {!isLoading && !loadError && permissions.length === 0 && (
         <div
           className="text-center py-6"
           style={{ color: 'var(--theme-on-surface-variant)' }}
@@ -269,6 +295,7 @@ export function CragPermissionsPanel({
               canManage={canManage}
               onRemove={handleRemove}
               isRemoving={removingUserId === perm.userId}
+              removeDisabled={removingUserId !== null}
             />
           ))}
         </div>
@@ -277,6 +304,7 @@ export function CragPermissionsPanel({
       {/* Add manager drawer */}
       {canManage && (
         <AddManagerDrawer
+          key={cragId}
           isOpen={isDrawerOpen}
           onClose={() => setIsDrawerOpen(false)}
           cragId={cragId}

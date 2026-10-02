@@ -1,9 +1,10 @@
 // apps/editor/src/hooks/use-face-data.ts
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useToast } from '@bloctop/ui/components/toast'
 import type { Route } from '@bloctop/shared/types'
 import type { FaceImageCacheService } from '@bloctop/ui/face-image'
 import { preloadImage } from '@bloctop/shared/editor-utils'
+import { applyFaceRoutes, buildFaceGroups, type FaceMutationResult } from '@/lib/face-state'
 
 export const FACE_ID_PATTERN = /^[\u4e00-\u9fffa-z0-9-]+$/
 export const FACE_ID_CLEANUP = /[^\u4e00-\u9fffa-z0-9-]/g
@@ -40,23 +41,38 @@ export function useFaceData({
   const [r2Faces, setR2Faces] = useState<R2FaceInfo[]>([])
   const [isLoadingFaces, setIsLoadingFaces] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [facesError, setFacesError] = useState<string | null>(null)
+  const [facesCragId, setFacesCragId] = useState<string | null>(null)
+  const currentCragRef = useRef(selectedCragId)
+  currentCragRef.current = selectedCragId
+  const loadVersionRef = useRef(0)
 
   const loadFaces = useCallback((cragId: string, signal?: AbortSignal) => {
+    const version = ++loadVersionRef.current
+    const isCurrent = () => !signal?.aborted && currentCragRef.current === cragId && loadVersionRef.current === version
     setIsLoadingFaces(true)
+    setFacesError(null)
     return fetch(`/api/faces?cragId=${encodeURIComponent(cragId)}`, { signal })
-      .then(res => res.json())
+      .then(async res => {
+        const data = await res.json()
+        if (!res.ok || !data.success || !Array.isArray(data.faces)) throw new Error(data.error || '加载岩面失败')
+        return data
+      })
       .then(data => {
-        if (data.success) setR2Faces(data.faces as R2FaceInfo[])
-        setIsLoadingFaces(false)
+        if (!isCurrent()) return false
+        setR2Faces(data.faces as R2FaceInfo[])
+        setFacesCragId(cragId)
+        return true
       })
       .catch(err => {
-        if (err instanceof DOMException && err.name === 'AbortError') return
-        setIsLoadingFaces(false)
+        if (isCurrent()) setFacesError(err instanceof Error ? err.message : '加载岩面失败')
+        return false
       })
+      .finally(() => { if (isCurrent()) setIsLoadingFaces(false) })
   }, [])
 
   useEffect(() => {
-    if (!selectedCragId) { setR2Faces([]); return }
+    if (!selectedCragId) { setR2Faces([]); setFacesCragId(null); setIsLoadingFaces(false); return }
     setR2Faces([])
     const controller = new AbortController()
     loadFaces(selectedCragId, controller.signal)
@@ -66,29 +82,29 @@ export function useFaceData({
   const handleRefresh = useCallback(async () => {
     if (!selectedCragId || isRefreshing) return
     setIsRefreshing(true)
-    await loadFaces(selectedCragId)
+    const loaded = await loadFaces(selectedCragId)
     setIsRefreshing(false)
-    showToast('已刷新', 'success', 2000)
+    if (currentCragRef.current === selectedCragId) showToast(loaded ? '已刷新' : '刷新失败，请重试', loaded ? 'success' : 'error', 2000)
   }, [selectedCragId, isRefreshing, loadFaces, showToast])
 
   const faceGroups = useMemo(() => {
-    if (!selectedCragId) return []
-    const map = new Map<string, FaceGroup>()
-    r2Faces.forEach(({ faceId, area }) => {
-      map.set(faceId, {
-        faceId, area, routes: [],
-        imageUrl: faceImageCache.getImageUrl({ cragId: selectedCragId, area, faceId }),
-      })
-    })
-    routes.forEach(r => {
-      if (!r.faceId) return
-      const entry = map.get(r.faceId)
-      if (entry) entry.routes.push(r)
-    })
-    let result = Array.from(map.values())
+    if (!selectedCragId || facesCragId !== selectedCragId) return []
+    let result = buildFaceGroups(r2Faces, routes, selectedCragId, face => faceImageCache.getImageUrl(face))
     if (selectedArea) result = result.filter(f => f.area === selectedArea)
     return result
-  }, [routes, r2Faces, selectedCragId, selectedArea, faceImageCache])
+  }, [routes, r2Faces, selectedCragId, selectedArea, faceImageCache, facesCragId])
+
+  const refreshContext = useCallback(async (cragId: string) => {
+    if (currentCragRef.current !== cragId) return
+    await Promise.all([
+      loadFaces(cragId),
+      fetch(`/api/crags/${encodeURIComponent(cragId)}/routes`).then(async res => {
+        const data = await res.json()
+        if (!res.ok || !data.success || !Array.isArray(data.routes)) throw new Error('重新核对线路失败')
+        if (currentCragRef.current === cragId) setRoutes(prev => applyFaceRoutes(prev, data.routes))
+      }).catch(() => { if (currentCragRef.current === cragId) showToast('操作状态需要核对，请刷新后再继续', 'info', 4000) }),
+    ])
+  }, [loadFaces, setRoutes, showToast])
 
   const handleDeleteFace = useCallback(async (selectedFace: FaceGroup) => {
     if (!selectedCragId) return false
@@ -99,21 +115,28 @@ export function useFaceData({
         body: JSON.stringify({ cragId: selectedCragId, area: selectedFace.area, faceId: selectedFace.faceId }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || '删除失败')
+      if (!res.ok || !data.success || !Array.isArray(data.routes)) {
+        if (data.partial) await refreshContext(selectedCragId)
+        throw new Error(data.error || '删除失败')
+      }
+      if (currentCragRef.current !== selectedCragId) return false
 
       faceImageCache.invalidate(`${selectedCragId}/${selectedFace.area}/${selectedFace.faceId}`)
-      setR2Faces(prev => prev.filter(f => f.faceId !== selectedFace.faceId))
+      setR2Faces(prev => prev.filter(f => f.faceId !== selectedFace.faceId || f.area !== selectedFace.area))
+      setRoutes(prev => applyFaceRoutes(prev, data.routes))
 
       const msg = data.routesCleared > 0
         ? `岩面已删除，已清除 ${data.routesCleared} 条线路的关联`
         : '岩面已删除'
-      showToast(msg, 'success', 3000)
+      if (data.partial) await refreshContext(selectedCragId)
+      if (currentCragRef.current !== selectedCragId) return false
+      showToast(data.warning || msg, data.partial ? 'info' : 'success', data.partial ? 5000 : 3000)
       return true
     } catch (error) {
-      showToast(error instanceof Error ? error.message : '删除失败', 'error', 4000)
+      if (currentCragRef.current === selectedCragId) showToast(error instanceof Error ? error.message : '删除失败', 'error', 4000)
       return false
     }
-  }, [selectedCragId, showToast, faceImageCache])
+  }, [selectedCragId, showToast, faceImageCache, setRoutes, refreshContext])
 
   const handleRenameFace = useCallback(async (selectedFace: FaceGroup, newFaceId: string) => {
     if (!selectedCragId) return false
@@ -135,21 +158,27 @@ export function useFaceData({
         }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || '重命名失败')
+      if (!res.ok || !data.success || !Array.isArray(data.routes)) {
+        if (data.partial) await refreshContext(selectedCragId)
+        throw new Error(data.error || '重命名失败')
+      }
+      if (currentCragRef.current !== selectedCragId) return false
 
       faceImageCache.invalidate(`${selectedCragId}/${selectedFace.area}/${selectedFace.faceId}`)
       faceImageCache.invalidate(`${selectedCragId}/${selectedFace.area}/${trimmed}`)
-      setR2Faces(prev => prev.map(f => f.faceId === selectedFace.faceId ? { ...f, faceId: trimmed } : f))
-      setRoutes(prev => prev.map(r => r.faceId === selectedFace.faceId ? { ...r, faceId: trimmed } : r))
+      setR2Faces(prev => prev.map(f => f.faceId === selectedFace.faceId && f.area === selectedFace.area ? { ...f, faceId: trimmed } : f))
+      setRoutes(prev => applyFaceRoutes(prev, data.routes))
 
       const msg = data.routesUpdated > 0 ? `已重命名，${data.routesUpdated} 条线路已更新` : '岩面已重命名'
-      showToast(msg, 'success', 3000)
+      if (data.partial) await refreshContext(selectedCragId)
+      if (currentCragRef.current !== selectedCragId) return false
+      showToast(data.warning || msg, data.partial ? 'info' : 'success', data.partial ? 5000 : 3000)
       return trimmed
     } catch (error) {
-      showToast(error instanceof Error ? error.message : '重命名失败', 'error', 4000)
+      if (currentCragRef.current === selectedCragId) showToast(error instanceof Error ? error.message : '重命名失败', 'error', 4000)
       return false
     }
-  }, [selectedCragId, showToast, faceImageCache, setRoutes])
+  }, [selectedCragId, showToast, faceImageCache, setRoutes, refreshContext])
 
   const handleUploadSuccess = useCallback(async (params: {
     url: string
@@ -157,37 +186,52 @@ export function useFaceData({
     area: string
     isCreating: boolean
     newArea: string
+    cragId?: string
+    result?: FaceMutationResult
   }) => {
-    const { url: _url, faceId, area, isCreating, newArea } = params
+    const { faceId, area, isCreating, newArea } = params
+    const cragId = params.cragId ?? selectedCragId
+    if (!cragId || currentCragRef.current !== cragId) return false
+    const savedRoutes = params.result?.routes
+    if (savedRoutes) setRoutes(prev => applyFaceRoutes(prev, savedRoutes))
     // 1. 先 invalidate，生成带新版本号的 URL
-    faceImageCache.invalidate(`${selectedCragId}/${area}/${faceId}`)
+    faceImageCache.invalidate(`${cragId}/${area}/${faceId}`)
     // 2. 用 invalidate 后的版本化 URL 预加载（与订阅组件将使用的 URL 一致）
     const versionedUrl = faceImageCache.getImageUrl({
-      cragId: selectedCragId!,
+      cragId,
       area,
       faceId,
     })
-    await preloadImage(versionedUrl)
-    showToast('照片上传成功！', 'success', 3000)
+    let previewFailed = false
+    try { await preloadImage(versionedUrl) } catch { previewFailed = true }
+    if (currentCragRef.current !== cragId) return false
+    if (previewFailed) showToast('照片已上传，预览加载失败，请刷新', 'info', 4000)
+    showToast(params.result?.warning || '照片上传成功！', params.result?.partial ? 'info' : 'success', params.result?.partial ? 5000 : 3000)
 
     if (isCreating) {
-      if (newArea && selectedCragId && !persistedAreas.includes(newArea)) {
+      if (newArea && !persistedAreas.includes(newArea)) {
         const merged = [...new Set([...persistedAreas, newArea])].sort()
-        updateCragAreas(selectedCragId, merged).catch(() => {})
+        updateCragAreas(cragId, merged).catch(() => {
+          if (currentCragRef.current === cragId) showToast('照片已保存，区域列表更新失败，请刷新核对', 'info', 4000)
+        })
       }
-      setR2Faces(prev => prev.some(f => f.faceId === faceId) ? prev : [...prev, { faceId, area }])
+      setR2Faces(prev => prev.some(f => f.faceId === faceId && f.area === area) ? prev : [...prev, { faceId, area }])
+      setFacesCragId(cragId)
     }
-  }, [selectedCragId, faceImageCache, showToast, persistedAreas, updateCragAreas])
+    return true
+  }, [selectedCragId, faceImageCache, showToast, persistedAreas, updateCragAreas, setRoutes])
 
   return {
-    r2Faces,
+    r2Faces: facesCragId === selectedCragId ? r2Faces : [],
     setR2Faces,
     isLoadingFaces,
     isRefreshing,
+    facesError,
     faceGroups,
     handleRefresh,
     handleDeleteFace,
     handleRenameFace,
     handleUploadSuccess,
+    refreshContext,
   }
 }

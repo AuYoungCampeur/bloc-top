@@ -1,4 +1,5 @@
-import { S3Client } from '@aws-sdk/client-s3'
+import { S3Client, HeadObjectCommand, ListObjectsV2Command, CopyObjectCommand, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3'
+import { FaceOperationError, type FaceObjectStore } from '@bloctop/shared/face-management'
 
 /**
  * Cloudflare R2 客户端 — 懒加载单例
@@ -39,4 +40,51 @@ export function getBucketName(): string {
     throw new Error('Missing R2_BUCKET_NAME')
   }
   return bucketName
+}
+
+/** Object transport; domain sequencing and reference updates live in shared. */
+export function getFaceObjectStore(): FaceObjectStore {
+  const send = async (operation: () => Promise<unknown>) => {
+    try { return await operation() }
+    catch (error) {
+      if (error && typeof error === 'object' && ('name' in error) &&
+          (error.name === 'PreconditionFailed' || ('$metadata' in error && (error.$metadata as { httpStatusCode?: number })?.httpStatusCode === 412))) {
+        throw new FaceOperationError(409, 'FACE_VERSION_CONFLICT', '图片已变化或目标已存在，请刷新后重试')
+      }
+      throw error
+    }
+  }
+  return {
+    async head(key) {
+      try {
+        const result = await getS3Client().send(new HeadObjectCommand({ Bucket: getBucketName(), Key: key }))
+        if (!result.ETag) throw new Error('R2 returned an object without an ETag')
+        return { etag: result.ETag, contentType: result.ContentType }
+      } catch (error) {
+        if (error && typeof error === 'object' && 'name' in error &&
+            (error.name === 'NotFound' || error.name === 'NoSuchKey')) return null
+        throw error
+      }
+    },
+    async list(prefix, continuationToken) {
+      const result = await getS3Client().send(new ListObjectsV2Command({ Bucket: getBucketName(), Prefix: prefix, ContinuationToken: continuationToken }))
+      return { keys: (result.Contents ?? []).flatMap(o => o.Key ? [o.Key] : []), continuationToken: result.IsTruncated ? result.NextContinuationToken : undefined }
+    },
+    async copy(source, destination, sourceEtag) {
+      const command = new CopyObjectCommand({ Bucket: getBucketName(), Key: destination,
+        CopySource: `${getBucketName()}/${source.split('/').map(encodeURIComponent).join('/')}`, CopySourceIfMatch: sourceEtag })
+      // R2 destination condition is a custom extension, not CopySourceIfNoneMatch.
+      command.middlewareStack.add(next => async args => {
+        const request = args.request as { headers?: Record<string, string> }
+        if (request.headers) request.headers['cf-copy-destination-if-none-match'] = '*'
+        return next(args)
+      }, { step: 'build', name: 'faceDestinationCondition' })
+      await send(() => getS3Client().send(command))
+    },
+    async put(key, body, options) {
+      await send(() => getS3Client().send(new PutObjectCommand({ Bucket: getBucketName(), Key: key, Body: body,
+        ContentType: options.contentType, IfMatch: options.ifMatch, IfNoneMatch: options.ifNoneMatch })))
+    },
+    async delete(key) { await send(() => getS3Client().send(new DeleteObjectCommand({ Bucket: getBucketName(), Key: key }))) },
+  }
 }

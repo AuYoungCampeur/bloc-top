@@ -11,6 +11,15 @@ const log = createModuleLogger('API:CragPermissions')
 
 const VALID_ROLES: CragPermissionRole[] = ['manager']
 
+function validIdentity(value: unknown): value is string {
+  return typeof value === 'string' && !!value.trim() && value.length <= 200
+}
+
+async function readBody(request: NextRequest): Promise<Record<string, unknown>> {
+  const body: unknown = await request.json().catch(() => null)
+  return body !== null && typeof body === 'object' && !Array.isArray(body) ? body as Record<string, unknown> : {}
+}
+
 /**
  * GET /api/crag-permissions?cragId=xxx
  * 获取指定岩场的权限列表 (需要 admin 权限)
@@ -86,17 +95,17 @@ export async function POST(request: NextRequest) {
   const { userId: currentUserId, role: currentRole } = authResult
 
   try {
-    const body = await request.json()
+    const body = await readBody(request)
     const { userId: targetUserId, cragId, role: permRole } = body
 
-    if (!targetUserId || !cragId || !permRole) {
+    if (!validIdentity(targetUserId) || !validIdentity(cragId) || !permRole) {
       return NextResponse.json(
         { success: false, error: '缺少 userId、cragId 或 role' },
         { status: 400 }
       )
     }
 
-    if (!VALID_ROLES.includes(permRole)) {
+    if (typeof permRole !== 'string' || !VALID_ROLES.includes(permRole as CragPermissionRole)) {
       return NextResponse.json(
         { success: false, error: `角色无效，允许的值: ${VALID_ROLES.join(', ')}` },
         { status: 400 }
@@ -113,7 +122,7 @@ export async function POST(request: NextRequest) {
     const permission = await createCragPermission({
       userId: targetUserId,
       cragId,
-      role: permRole,
+      role: permRole as CragPermissionRole,
       assignedBy: currentUserId,
     })
 
@@ -145,10 +154,10 @@ export async function DELETE(request: NextRequest) {
   const { userId: currentUserId, role: currentRole } = authResult
 
   try {
-    const body = await request.json()
+    const body = await readBody(request)
     const { userId: targetUserId, cragId } = body
 
-    if (!targetUserId || !cragId) {
+    if (!validIdentity(targetUserId) || !validIdentity(cragId)) {
       return NextResponse.json(
         { success: false, error: '缺少 userId 或 cragId' },
         { status: 400 }

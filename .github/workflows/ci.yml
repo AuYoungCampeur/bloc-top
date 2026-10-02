@@ -49,7 +49,7 @@ jobs:
           NEXT_PUBLIC_APP_URL: http://localhost:4201
           NEXT_PUBLIC_AMAP_KEY: ''
         run: pnpm build
-      - name: Verify direct Next hydration without a Service Worker
+      - name: Verify hydration and offline cold start with local fixtures
         shell: bash
         run: |
           cd apps/pwa
@@ -69,6 +69,8 @@ jobs:
             exit 1
           fi
           node scripts/offline-hydration-smoke.mjs
+          node scripts/offline-sw-smoke.mjs
+          node scripts/offline-download-basic-smoke.mjs
 
       - name: Verify both application sessions and Beta visibility with isolated Mongo
         shell: bash

@@ -11,7 +11,6 @@
  */
 
 import { useState, useMemo, useSyncExternalStore } from 'react'
-import { useRouter } from 'next/navigation'
 import { useTranslations, useLocale } from 'next-intl'
 import { WifiOff, ChevronDown, ChevronUp, ChevronRight, Mountain } from 'lucide-react'
 import { useOfflineDownloadContextSafe } from '@/components/offline-download-provider'
@@ -37,17 +36,11 @@ function getServerSnapshot() {
 export default function OfflineIndicator() {
   const t = useTranslations('OfflineIndicator')
   const locale = useLocale()
-  const router = useRouter()
   const isOffline = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
   const [isExpanded, setIsExpanded] = useState(false)
 
   // 获取离线下载 Context (可能为 null)
   const offlineDownload = useOfflineDownloadContextSafe()
-
-  // 点击岩场跳转到离线详情页
-  const handleCragClick = (cragId: string) => {
-    router.push(`/${locale}/offline/crag/${cragId}`)
-  }
 
   // 已下载岩场数量
   const offlineCragCount = useMemo(() => {
@@ -103,16 +96,17 @@ export default function OfflineIndicator() {
           <p className="text-xs opacity-70 mt-2 mb-2">{t('tapToView')}</p>
           <div className="space-y-2">
             {offlineDownload.offlineCrags.map((crag) => (
-              <button
+              // Native document navigation lets SW serve the offline shell without an RSC request.
+              <a
                 key={crag.cragId}
-                onClick={() => handleCragClick(crag.cragId)}
+                href={`/${locale}/offline?offlineCrag=${encodeURIComponent(crag.cragId)}`}
                 className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-white/20 hover:bg-white/30 transition-colors text-left"
               >
                 <Mountain className="w-4 h-4 flex-shrink-0" />
                 <span className="flex-1 truncate">{crag.cragName}</span>
                 <span className="text-xs opacity-70">{crag.routeCount} {t('routes')}</span>
                 <ChevronRight className="w-4 h-4 flex-shrink-0 opacity-70" />
-              </button>
+              </a>
             ))}
           </div>
         </div>

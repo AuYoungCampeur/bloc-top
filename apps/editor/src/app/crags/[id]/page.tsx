@@ -13,6 +13,7 @@ import {
   Navigation,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { useSession } from '@/lib/auth-client'
 import { EditorPageHeader } from '@/components/editor/editor-page-header'
 import { CragPermissionsPanel } from '@/components/editor/crag-permissions-panel'
@@ -64,7 +65,8 @@ export default function CragDetailPage({
 
   const [crag, setCrag] = useState<Crag | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [canEdit, setCanEdit] = useState(false)
+  const [editAccess, setEditAccess] = useState<{ cragId: string; userId: string; allowed: boolean } | null>(null)
+  const canEdit = !!session && (isAdmin || (editAccess?.cragId === cragId && editAccess.userId === session.user.id && editAccess.allowed))
 
   // Edit mode state
   const [isEditing, setIsEditing] = useState(false)
@@ -104,12 +106,7 @@ export default function CragDetailPage({
   // ============ Determine canEdit ============
 
   useEffect(() => {
-    if (!session) return
-
-    if (isAdmin) {
-      setCanEdit(true)
-      return
-    }
+    if (!session || isAdmin) return
 
     const controller = new AbortController()
 
@@ -119,11 +116,11 @@ export default function CragDetailPage({
       .then((data) => {
         if (controller.signal.aborted) return
         const found = data?.crags?.some((c: { id: string }) => c.id === cragId)
-        setCanEdit(!!found)
+        setEditAccess({ cragId, userId: session.user.id, allowed: !!found })
       })
       .catch((err) => {
         if (err instanceof DOMException && err.name === 'AbortError') return
-        setCanEdit(false)
+        if (!controller.signal.aborted) setEditAccess({ cragId, userId: session.user.id, allowed: false })
       })
 
     return () => controller.abort()
@@ -271,6 +268,12 @@ export default function CragDetailPage({
 
       {/* Content */}
       <div className="max-w-lg mx-auto px-4 py-6 space-y-6">
+        {canEdit && (
+          <nav aria-label="当前岩场内容管理" className="flex gap-3">
+            <Link href={`/faces?cragId=${encodeURIComponent(cragId)}`} className="glass-light p-3 rounded-xl">管理岩面</Link>
+            <Link href={`/routes?cragId=${encodeURIComponent(cragId)}`} className="glass-light p-3 rounded-xl">管理线路与 Beta</Link>
+          </nav>
+        )}
         {/* ==================== Crag Info Card ==================== */}
         <div
           className="glass-light p-5 space-y-4 animate-fade-in-up"

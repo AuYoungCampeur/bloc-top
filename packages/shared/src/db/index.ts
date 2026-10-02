@@ -4,6 +4,9 @@ import { createModuleLogger } from '../logger'
 import type { Crag, Route, Feedback, VisitStats, CityConfig, PrefectureConfig, CragPermission, CragPermissionRole } from '../types'
 import { ObjectId } from 'mongodb'
 import type { WithId, Document } from 'mongodb'
+import { normalizeRouteTopoUpdates } from '../face-references'
+import { allocateRouteId } from '../route-id'
+import { normalizeCragGrantUserId, CragPermissionConflictError, getCragGrantId, getCragGrantUserFilter, assertCragGrantIdentity } from '../crag-grant'
 
 // 创建数据库模块专用 logger
 const log = createModuleLogger('DB')
@@ -494,15 +497,17 @@ export async function updateRoute(
   try {
     const db = await getDatabase()
 
-    // 添加更新时间戳
-    const updateData = {
-      ...updates,
-      updatedAt: new Date(),
+    const normalized = normalizeRouteTopoUpdates(updates)
+    const updateData: Document = { updatedAt: new Date() }
+    const unset: Document = {}
+    for (const [field, value] of Object.entries(normalized)) {
+      if (value === undefined) unset[field] = ''
+      else updateData[field] = value
     }
 
     const result = await db.collection('routes').findOneAndUpdate(
       { _id: toMongoId(id) },
-      { $set: updateData },
+      { $set: updateData, ...(Object.keys(unset).length ? { $unset: unset } : {}) },
       { returnDocument: 'after' }
     )
 
@@ -533,7 +538,7 @@ export async function updateRoute(
 
 /**
  * 创建新线路
- * 自动生成递增 ID（取最大 _id + 1）
+ * 使用持久计数器分配递增 ID；删除不回收 ID
  */
 export async function createRoute(
   data: Omit<Route, 'id' | 'topoLine' | 'betaLinks' | 'image'>
@@ -544,13 +549,13 @@ export async function createRoute(
     const db = await getDatabase()
     const collection = db.collection('routes')
 
-    // 获取最大 _id
-    const lastDoc = await collection.find().sort({ _id: -1 }).limit(1).toArray()
-    const newId = lastDoc.length > 0 ? (lastDoc[0]._id as unknown as number) + 1 : 1
+    const newId = await allocateRouteId(db)
+    const normalized = normalizeRouteTopoUpdates(data)
+    const fields = Object.fromEntries(Object.entries(normalized).filter(([, value]) => value !== undefined))
 
     const doc = {
       _id: toMongoId(newId),
-      ...data,
+      ...fields,
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -563,7 +568,7 @@ export async function createRoute(
       metadata: { routeId: newId, name: data.name, cragId: data.cragId },
     })
 
-    return { id: newId, ...data } as Route
+    return { id: newId, ...fields } as Route
   } catch (error) {
     log.error('Failed to create route', error, {
       action: 'createRoute',
@@ -1206,8 +1211,9 @@ export async function getCragPermission(
   const start = Date.now()
 
   try {
+    assertCragGrantIdentity(userId, cragId)
     const db = await getDatabase()
-    const doc = await db.collection('crag_permissions').findOne({ userId, cragId })
+    const doc = await db.collection('crag_permissions').findOne({ userId: getCragGrantUserFilter(userId), cragId })
 
     if (!doc) return null
 
@@ -1269,7 +1275,7 @@ export async function getCragPermissionsByUserId(
     const db = await getDatabase()
     const docs = await db
       .collection('crag_permissions')
-      .find({ userId })
+      .find({ userId: getCragGrantUserFilter(userId) })
       .sort({ createdAt: 1 })
       .toArray()
 
@@ -1290,7 +1296,7 @@ export async function getCragPermissionsByUserId(
 
 /**
  * 创建岩场权限记录
- * 使用 userId+cragId 唯一索引防重
+ * 原子 upsert 匹配旧记录；稳定 _id 依靠 MongoDB 内置唯一约束防止并发重复。
  */
 export async function createCragPermission(
   data: Omit<CragPermission, 'createdAt'>
@@ -1298,13 +1304,20 @@ export async function createCragPermission(
   const start = Date.now()
 
   try {
+    assertCragGrantIdentity(data.userId, data.cragId)
     const db = await getDatabase()
     const doc = {
       ...data,
+      userId: normalizeCragGrantUserId(data.userId),
       createdAt: new Date(),
     }
 
-    await db.collection('crag_permissions').insertOne(doc)
+    const result = await db.collection<CragPermission & { _id: string | ObjectId }>('crag_permissions').updateOne(
+      { userId: getCragGrantUserFilter(data.userId), cragId: data.cragId },
+      { $setOnInsert: { ...doc, _id: getCragGrantId(data.userId, data.cragId) } },
+      { upsert: true }
+    )
+    if (result.upsertedCount !== 1) throw new CragPermissionConflictError()
 
     log.info(`Created crag permission: ${data.userId} → ${data.cragId} (${data.role})`, {
       action: 'createCragPermission',
@@ -1318,12 +1331,15 @@ export async function createCragPermission(
       action: 'createCragPermission',
       duration: Date.now() - start,
     })
+    if (error !== null && typeof error === 'object' && 'code' in error && error.code === 11000) {
+      throw new CragPermissionConflictError()
+    }
     throw error
   }
 }
 
 /**
- * 删除岩场权限记录
+ * 撤销该用户在此岩场的全部授权，包括历史重复记录。
  */
 export async function deleteCragPermission(
   userId: string,
@@ -1332,8 +1348,12 @@ export async function deleteCragPermission(
   const start = Date.now()
 
   try {
+    assertCragGrantIdentity(userId, cragId)
     const db = await getDatabase()
-    const result = await db.collection('crag_permissions').deleteOne({ userId, cragId })
+    const result = await db.collection('crag_permissions').deleteMany({
+      userId: getCragGrantUserFilter(userId),
+      cragId,
+    })
 
     log.info(`Deleted crag permission: ${userId} → ${cragId} (matched: ${result.deletedCount})`, {
       action: 'deleteCragPermission',

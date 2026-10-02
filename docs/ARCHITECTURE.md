@@ -1,6 +1,6 @@
 # 技术架构
 
-> 架构基线核对于 2026-09-20，认证、Beta、编辑状态、缓存与构建边界于 2026-10-02 更新。描述仓库实现；逐次验收见 [产品迭代记录](PRODUCT.md)。阅读入口：[README](../README.md)。
+> 架构基线核对于 2026-09-20，认证、内容一致性、离线与构建边界于 2026-10-02 更新。描述当前源码；部署和验收状态见 [产品迭代记录](PRODUCT.md)。阅读入口：[README](../README.md)。
 
 ## 1. 应用边界
 
@@ -41,9 +41,9 @@ PWA 页面在 `apps/pwa/src/app/[locale]/`，支持 `zh`、`en`、`fr`；路由�
 
 主要页面：`/[locale]`、`/crag/[id]`、`/route`、`/profile`、`/login`、`/auth/*`、`/offline/*`（后几项均省略 locale 前缀）。在线线路详情主要通过抽屉展示；当前没有在线 `/[locale]/route/[id]/page.tsx`，离线端有单线路页面。
 
-Editor 页面直接位于 `apps/editor/src/app/`：`/`、`/crags`、`/crags/[id]`、`/faces`、`/routes`、`/cities`、`/users`。无 locale 前缀，也没有 `/editor` 前缀。Beta 已合并进 `/routes` 的标签页，不再有独立 `/betas` 页面。当前工作区另有尚未提交的 `/crags/new`，见[后台指南](ADMIN.md)。
+Editor 页面直接位于 `apps/editor/src/app/`：`/`、`/crags`、`/crags/new`、`/crags/[id]`、`/faces`、`/routes`、`/cities`、`/users`。无 locale 前缀，也没有 `/editor` 前缀。Beta 已合并进 `/routes` 的标签页，不再有独立 `/betas` 页面。岩场详情通过 `cragId` 参数进入指定岩场的岩面/线路工作台，见[后台指南](ADMIN.md)。
 
-两端 `src/app/api/` 存在同名路由实现，不能把同一路径视为同一份 API。Beta 已通过 shared `createBetaHandlers` 统一合约，两个应用仅注入认证/数据库/权限依赖。后台 API 清单及其他差异见[后台指南](ADMIN.md)。
+两端 `src/app/api/` 存在同名路由，不能把同一路径视为同一份 API。Beta、认证以及岩面/上传通过 shared handler 工厂复用合约，两个应用注入各自依赖。线路 PATCH 共用 Topo 校验与投影，但其他路由仍有重复实现。后台 API 清单及其他差异见[后台指南](ADMIN.md)。
 
 ## 3. 数据模型
 
@@ -67,6 +67,7 @@ flowchart TD
 | `cities` / `prefectures` | 配置存在 MongoDB；地级市包含 `districts`、`defaultDistrict`，城市含 `adcode`、`available`、坐标 |
 | `crags` | 字符串业务 ID；`cityId`、区域名称数组、坐标、接近路线、封面、致谢、`createdBy` |
 | `routes` | 数字业务 ID；归属岩场和区域，难度通常为 V 级；内嵌 Beta 与多图标注 |
+| `counters` | `route-id` 原子递增分配线路 ID，删除和插入失败不回收已分配数字 |
 | 岩面 | 当前没有独立 `faces` 集合；通过 R2 对象路径和线路引用表达 |
 | `crag_permissions` | `{ userId, cragId, role: 'manager', assignedBy, createdAt }`；全局 admin 无须逐岩场授权 |
 | `user` / `session` / `account` / `verification` / `passkey` | better-auth 管理的认证集合，单数命名 |
@@ -90,9 +91,9 @@ interface RouteTopoAnnotation {
 }
 ```
 
-新数据使用 `Route.topoAnnotations`。旧的 `faceId`、`topoLine`、`topoTension` 仍保留：后台保存时筛出至少两个点的标注，并把第一条有效标注同步至旧字段。PWA 的 [topo-annotations.ts](../apps/pwa/src/lib/topo-annotations.ts) 优先读取非空新数组，否则从旧字段合成单条标注。
+新数据使用 `Route.topoAnnotations`。共享 [face-references.ts](../packages/shared/src/face-references.ts) 统一完整图片身份、新旧读取与局部变换；非空数组优先，否则从旧字段合成单条标注。服务端将数组第一条投影到旧 `faceId`、`faceArea`、`topoLine`、`topoTension`；`faceArea` 缺失时回退线路区域。显式空数组清除兼容标注字段，MongoDB 用 `$unset` 清除值。
 
-这只是兼容策略，不表示所有旧消费路径已支持多图。岩面管理、离线下载等残留问题见[后台指南](ADMIN.md)和[用户端文档](PWA.md)。
+岩面改名/删除/清线只处理指定三元身份；同名其他区域和多图的其他标注保留。图片 URL、同岩面线路分组、后台管理和离线 manifest 共用这一身份。线路 PATCH 尚未要求 Topo 版本，晚到的旧保存仍可能恢复旧引用，不能据此声称全流程并发安全。
 
 曲线实现位于 [topo-utils.ts](../packages/shared/src/topo-utils.ts)：使用 centripetal Catmull–Rom（调用处 α=0.5），归一化点转换到 SVG viewBox 后绘制；`topoTension` 控制平滑程度，1 对应折线。UI 由 TopoPreview、全屏编辑器、PWA 单/多线路叠加层消费。
 
@@ -110,7 +111,7 @@ R2 对象路径：`{cragId}/{area}/{faceId}.jpg`。旧线路图路径仍通过 `
 
 Server Component → 共享 DB 函数 → MongoDB → Client Component → 本地筛选/详情抽屉。
 
-首页与线路列表先读取城市选择 Cookie，按区县或地级市加载数据。岩场详情按岩场 ID 加载。DB 查询里的 React `cache()` 用于渲染请求中的复用，不能等同于数据库长期缓存。天气等交互数据经 Route Handler 与 SWR 获取。
+首页读取城市选择 Cookie，按区县或地级市加载数据；线路列表优先采用有效岩场链接的所属城市，其次显式城市参数、Cookie。岩场详情按岩场 ID 加载。DB 查询里的 React `cache()` 用于渲染请求中的复用，不能等同于数据库长期缓存。天气等交互数据经 Route Handler 与 SWR 获取。
 
 首页/线路列表先读取请求 Cookie 后才查询数据库，岩场详情明确动态渲染，不在构建时枚举数据库记录。双应用构建无需服务凭据；运行时仍需配置数据库等依赖。
 
@@ -124,12 +125,17 @@ Client Component / hook → 同源 Editor API → session 校验 → 岩场权�
 
 通知失败记录日志，不回滚已完成的数据写入。多处调用没有 `await`，也没有持久化重试队列，所以不能把保存成功理解为所有用户已看到新数据。Beta 和上传 API 的刷新覆盖也不完整。
 
-R2 操作与 MongoDB 更新没有跨服务事务。改名、删除、覆盖图片必须处理引用一致性和部分失败。
+Editor 新建岩场及创建者授权由 [crag-creation.ts](../packages/shared/src/crag-creation.ts) 在同一 MongoDB transaction 内写入；相同创建者和初始字段可按原 ID 重试，其余占用返回冲突。PWA 的旧创建入口仍为分步写入，尚未接入该服务。部署数据库必须支持事务，构建不会执行此服务。线路 ID 计数器首次参考现存最大 ID；无法还原未知历史删除数字。
+
+岩面操作由 [face-management.ts](../packages/shared/src/face-management.ts) 组织 MongoDB 与 R2。改名先条件复制，再改引用，最后清理旧图；删除先清引用再删图。覆盖需检查所得 ETag，使用条件 Put；清 Topo 后上传失败返回部分完成，网络异常明确写入状态不确定。引用变换对 Topo 字段快照做条件更新，保留同时写入的 Beta/文字。成功或不确定写入会更新 `Crag.mediaRevision`，用于离线版本检测。
+
+R2 与 MongoDB 没有跨服务事务或持久恢复日志；HEAD 后删除仍有竞态，R2 Copy 的源与目标条件检查时点也非原子，见 [Cloudflare 说明](https://developers.cloudflare.com/r2/api/s3/extensions/)。部分失败可能留下待清理图片；必须刷新核对，不能把错误响应理解为全部回滚。
 
 ## 6. 认证、缓存与部署边界
 
 - 登录在 PWA 完成：Magic Link、密码、Passkey；两端各建 better-auth 实例，共享数据库、session 与签名密钥。
 - 两端认证与登录回跳复用 shared 环境配置；localhost 与生产共享会话，独立 Vercel Preview 使用 host-only Cookie，跨 Preview 登录尚未建立。
+- 两端认证 GET/POST 由 shared `auth-route` 统一捕获初始化/异步处理错误，所有响应（包括重定向和错误）为 `private, no-store`，保留原 Cookie。
 - 全局角色是 `admin | user`；`manager` 是岩场授权，不是第三种全局角色。服务端 API 才是写入权限边界，详见[认证文档](AUTH.md)。
 - 缓存分为 Next 页面/路由缓存、HTTP 缓存、Service Worker、FaceImageCache 内存版本、IndexedDB 离线资料，详见[PWA 文档](PWA.md)。单一失效操作不能刷新所有层。
 - PWA 构建使用 webpack 以生成 Serwist Service Worker；开发模式使用 Turbopack 且关闭 SW。Editor 构建使用默认 `next build`。

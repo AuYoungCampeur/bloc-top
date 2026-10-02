@@ -13,18 +13,22 @@ import { useTranslations, useLocale } from 'next-intl'
 import { CloudDownload, RefreshCw, Mountain, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { AppTabbar } from '@/components/app-tabbar'
-import { getAllOfflineCrags, type OfflineCragData } from '@/lib/offline-storage'
+import { getAllOfflineCrags, OFFLINE_META_EVENT, OfflineDBBlockedError, type OfflineCragData } from '@/lib/offline-storage'
+import { OfflineBrowser } from '@/components/offline-browser'
 import { findPrefectureByDistrictId, isCityValid } from '@/lib/city-utils'
 import type { CityConfig, PrefectureConfig } from '@/types'
 
 export default function OfflinePage() {
   const t = useTranslations('OfflinePage')
+  const tOffline = useTranslations('Offline')
   const locale = useLocale()
   const router = useRouter()
   const [offlineCrags, setOfflineCrags] = useState<OfflineCragData[]>([])
   const [cities, setCities] = useState<CityConfig[]>([])
   const [prefectures, setPrefectures] = useState<PrefectureConfig[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [storageBlocked, setStorageBlocked] = useState(false)
+  const [view, setView] = useState<{ cragId?: string; routeId?: number }>({})
   const [isOnline, setIsOnline] = useState(false)
 
   // 加载离线数据 + 城市配置
@@ -45,13 +49,24 @@ export default function OfflinePage() {
             .catch(() => {}),
         ])
         setOfflineCrags(crags)
+        setStorageBlocked(false)
       } catch (error) {
+        setStorageBlocked(error instanceof OfflineDBBlockedError)
         console.error('Failed to load offline crags:', error)
       } finally {
         setIsLoading(false)
       }
     }
-    loadData()
+    void loadData()
+    const readView = () => {
+      const params = new URLSearchParams(window.location.search)
+      const pathCrag = window.location.pathname.match(/\/offline\/crag\/([^/]+)/)?.[1]
+      setView({ cragId: params.get('offlineCrag') ?? (pathCrag ? decodeURIComponent(pathCrag) : undefined), routeId: params.has('offlineRoute') ? Number(params.get('offlineRoute')) : undefined })
+    }
+    readView()
+    window.addEventListener('popstate', readView)
+    window.addEventListener(OFFLINE_META_EVENT, loadData)
+    return () => { window.removeEventListener('popstate', readView); window.removeEventListener(OFFLINE_META_EVENT, loadData) }
   }, [])
 
   // 监听网络状态
@@ -117,6 +132,16 @@ export default function OfflinePage() {
     router.push(`/${locale}`)
   }
 
+  const openView = (cragId?: string, routeId?: number) => {
+    setView({ cragId, routeId })
+    const params = new URLSearchParams()
+    if (cragId) params.set('offlineCrag', cragId)
+    if (routeId !== undefined) params.set('offlineRoute', String(routeId))
+    window.history.pushState(null, '', `/${locale}/offline${params.size ? `?${params}` : ''}`)
+  }
+  const selectedCrag = offlineCrags.find(item => item.cragId === view.cragId)
+  if (selectedCrag) return <><OfflineBrowser data={selectedCrag} routeId={view.routeId} onRouteSelect={id => openView(selectedCrag.cragId, id)} onBack={() => view.routeId !== undefined ? openView(selectedCrag.cragId) : openView()} /><AppTabbar /></>
+
   return (
     <>
     <div
@@ -160,6 +185,8 @@ export default function OfflinePage() {
               style={{ borderColor: 'var(--theme-primary)', borderTopColor: 'transparent' }}
             />
           </div>
+        ) : storageBlocked ? (
+          <p role="alert" className="p-4 text-center">{tOffline('storageBlocked')}</p>
         ) : offlineCrags.length > 0 ? (
           <div className="space-y-3">
             <h2
@@ -179,12 +206,12 @@ export default function OfflinePage() {
                   </h2>
                 )}
                 {group.crags.map((cragData) => (
-                  <CragCard key={cragData.cragId} cragData={cragData} locale={locale} router={router} t={t} />
+                  <CragCard key={cragData.cragId} cragData={cragData} onOpen={openView} t={t} />
                 ))}
               </div>
             ))}
             {cragsByPrefecture.ungrouped.map((cragData) => (
-              <CragCard key={cragData.cragId} cragData={cragData} locale={locale} router={router} t={t} />
+              <CragCard key={cragData.cragId} cragData={cragData} onOpen={openView} t={t} />
             ))}
           </div>
         ) : (
@@ -251,18 +278,16 @@ export default function OfflinePage() {
 
 function CragCard({
   cragData,
-  locale,
-  router,
+  onOpen,
   t,
 }: {
   cragData: OfflineCragData
-  locale: string
-  router: ReturnType<typeof useRouter>
+  onOpen: (cragId: string) => void
   t: ReturnType<typeof useTranslations<'OfflinePage'>>
 }) {
   return (
     <button
-      onClick={() => router.push(`/${locale}/route?crag=${cragData.cragId}`)}
+      onClick={() => onOpen(cragData.cragId)}
       className="glass w-full p-4 flex items-center gap-3 text-left"
       style={{
         borderRadius: 'var(--theme-radius-xl)',

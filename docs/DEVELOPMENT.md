@@ -105,6 +105,18 @@ pnpm --filter @bloctop/editor exec next start -p 3001
 
 部署相关联动：域名与 HTTPS、Cookie 共享、可信 origins、Passkey RP ID、R2 图片域名与 CORS、两端一致的重验证密钥、Editor 到 PWA webhook 的可达性。认证安全升级需要两端使用同一依赖版本，旧的待使用 Magic Link 需要重新申请；具体条件、验证边界和回滚限制见[安全升级说明](SECURITY.md)。
 
+新建岩场采用 MongoDB transaction，需要 replica set 或 mongos；普通 standalone 开发库不能验证此流程。R2 上传默认 create-only，覆盖需要 checkOnly 得到的 ETag；API 的 partial 响应可能表示引用已变或图片写入状态不确定，重试前刷新核对。
+
+离线浏览器回归在无凭据 PWA 生产构建、本地 4100 服务上执行，CI 使用相同入口：
+
+```bash
+pnpm --filter @bloctop/pwa exec node scripts/offline-hydration-smoke.mjs
+pnpm --filter @bloctop/pwa exec node scripts/offline-sw-smoke.mjs
+pnpm --filter @bloctop/pwa exec node scripts/offline-download-basic-smoke.mjs
+```
+
+脚本仅接受没有凭据的 localhost/127.0.0.1 HTTP 服务，并拒绝非本地请求。第一项连续 60 次读取直接 Next HTML；第二项用原生 IndexedDB/Cache fixture 和真实 SW/页面，默认每种语言重复 3 次冷启动，检查刷新及旧图/单图/多图阅读。第三项在额外的 4101/4102 本地 HTTP fixture 上执行真实源码的下载按钮/provider，检查 HTTP、CORS、损坏图片失败、重试、同线路数更新及三语断网阅读；代理仅为本地媒体替换 SW 域名与 CSP。所有页面错误均失败。该流程不调用生产 Mongo/R2，不代替真实快照 API、跨标签页、Safari 或存储回收验收。
+
 ## 6. 数据维护脚本不是初始化捷径
 
 大部分维护脚本在 `apps/pwa/scripts/`，不是根 `scripts/`；根目录还保留 `import-routes.ts`。
