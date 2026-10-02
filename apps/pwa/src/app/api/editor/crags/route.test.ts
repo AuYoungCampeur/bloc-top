@@ -1,150 +1,72 @@
-/**
- * GET /api/editor/crags — 编辑器岩场列表 (权限过滤)
- *
- * 覆盖场景:
- * - 未登录返回 401
- * - admin 看到所有岩场 (permissionRole: 'admin')
- * - 有岩场权限的用户只看到有权限的岩场 (permissionRole: 'manager')
- * - 无权限用户返回空数组
- * - 返回 role + canCreate 供前端 UI 决策
- */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest, NextResponse } from 'next/server'
-import type { Crag } from '@/types'
+import { canAccessEditor } from '@bloctop/shared/permissions'
 
-vi.mock('@/lib/mongodb', () => ({
-  getDatabase: vi.fn(),
+const fixtures = vi.hoisted(() => ({
+  userId: 'user-a',
+  role: 'user' as 'user' | 'admin',
+  authenticated: true,
+  crags: [
+    { id: 'granted', name: '授权岩场', cityId: 'city' },
+    { id: 'created', name: '创建者岩场', cityId: 'city', createdBy: 'user-a' },
+    { id: 'other', name: '其他岩场', cityId: 'city', createdBy: 'user-b' },
+  ],
+  permissions: [
+    { userId: 'user-a', cragId: 'granted', role: 'manager', assignedBy: 'admin', createdAt: new Date() },
+    { userId: 'user-a', cragId: 'deleted', role: 'manager', assignedBy: 'admin', createdAt: new Date() },
+  ],
 }))
-
-vi.mock('@/lib/require-auth', () => ({
-  requireAuth: vi.fn(),
-}))
-
-vi.mock('@/lib/permissions', () => ({
-  canCreateCrag: vi.fn(),
-}))
-
+vi.mock('@/lib/require-auth', () => ({ requireAuth: vi.fn(async () => fixtures.authenticated
+  ? { userId: fixtures.userId, role: fixtures.role }
+  : NextResponse.json({ error: '未登录' }, { status: 401 })) }))
+vi.mock('@bloctop/shared/mongodb', () => ({ getDatabase: vi.fn(async () => ({
+  collection: (name: string) => ({ find: (query: { userId?: string; $or?: Array<{ _id?: { $in: string[] }; createdBy?: string }> }) => ({
+    toArray: async () => name === 'crag_permissions'
+      ? fixtures.permissions.filter(p => p.userId === query.userId)
+      : fixtures.crags.filter(c => query.$or?.some(condition => condition._id?.$in.includes(c.id)
+        || ('createdBy' in c && c.createdBy === condition.createdBy))).map(c => ({ _id: c.id })),
+  }) }),
+})) }))
 vi.mock('@/lib/db', () => ({
-  getAllCrags: vi.fn(),
-  getCragPermissionsByUserId: vi.fn(),
+  getAllCrags: vi.fn(async () => fixtures.crags),
+  getCragPermissionsByUserId: vi.fn(async (userId: string) => fixtures.permissions.filter(p => p.userId === userId)),
 }))
-
-vi.mock('@/lib/logger', () => ({
-  createModuleLogger: () => ({
-    info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn(),
-  }),
-}))
-
 import { GET } from './route'
-import { requireAuth } from '@/lib/require-auth'
-import { canCreateCrag } from '@/lib/permissions'
-import { getAllCrags, getCragPermissionsByUserId } from '@/lib/db'
 
-const mockRequireAuth = vi.mocked(requireAuth)
-const mockCanCreateCrag = vi.mocked(canCreateCrag)
-const mockGetAllCrags = vi.mocked(getAllCrags)
-const mockGetCragPermissions = vi.mocked(getCragPermissionsByUserId)
+beforeEach(() => {
+  fixtures.userId = 'user-a'
+  fixtures.role = 'user'
+  fixtures.authenticated = true
+})
 
-function createRequest(): NextRequest {
-  return new NextRequest('http://localhost:3000/api/editor/crags')
-}
-
-const ALL_CRAGS = [
-  { id: 'crag-1', name: '岩场A', cityId: 'city1' },
-  { id: 'crag-2', name: '岩场B', cityId: 'city1' },
-  { id: 'crag-3', name: '岩场C', cityId: 'city2' },
-]
-
-describe('GET /api/editor/crags', () => {
-  beforeEach(() => vi.clearAllMocks())
-
-  it('should return 401 when not authenticated', async () => {
-    mockRequireAuth.mockResolvedValue(
-      NextResponse.json({ success: false, error: '未登录' }, { status: 401 })
-    )
-    const res = await GET(createRequest())
-    expect(res.status).toBe(401)
-  })
-
-  it('should return all crags for admin, with specific roles where available', async () => {
-    mockRequireAuth.mockResolvedValue({ userId: 'admin1', role: 'admin' })
-    mockCanCreateCrag.mockReturnValue(true)
-    mockGetAllCrags.mockResolvedValue(ALL_CRAGS as Crag[])
-    mockGetCragPermissions.mockResolvedValue([
-      { userId: 'admin1', cragId: 'crag-1', role: 'manager', assignedBy: 'system', createdAt: new Date() },
-    ])
-
-    const res = await GET(createRequest())
-    expect(res.status).toBe(200)
-    const data = await res.json()
-    expect(data.crags).toHaveLength(3)
-    // crag-1 有具体角色 → 显示 manager
-    expect(data.crags.find((c: { id: string; permissionRole: string }) => c.id === 'crag-1').permissionRole).toBe('manager')
-    // crag-2, crag-3 无记录 → fallback 为 admin
-    expect(data.crags.find((c: { id: string; permissionRole: string }) => c.id === 'crag-2').permissionRole).toBe('admin')
-    expect(data.crags.find((c: { id: string; permissionRole: string }) => c.id === 'crag-3').permissionRole).toBe('admin')
-    expect(data.role).toBe('admin')
-    expect(data.canCreate).toBe(true)
-  })
-
-  it('should return only permitted crags with correct roles', async () => {
-    mockRequireAuth.mockResolvedValue({ userId: 'user1', role: 'user' })
-    mockCanCreateCrag.mockReturnValue(true)
-    mockGetAllCrags.mockResolvedValue(ALL_CRAGS as Crag[])
-    mockGetCragPermissions.mockResolvedValue([
-      { userId: 'user1', cragId: 'crag-1', role: 'manager', assignedBy: 'system', createdAt: new Date() },
-      { userId: 'user1', cragId: 'crag-3', role: 'manager', assignedBy: 'admin1', createdAt: new Date() },
-    ])
-
-    const res = await GET(createRequest())
-    expect(res.status).toBe(200)
-    const data = await res.json()
-    expect(data.crags).toHaveLength(2)
-    expect(data.crags[0].id).toBe('crag-1')
-    expect(data.crags[0].permissionRole).toBe('manager')
-    expect(data.crags[1].id).toBe('crag-3')
-    expect(data.crags[1].permissionRole).toBe('manager')
-  })
-
-  it('should return empty array for user with no permissions', async () => {
-    mockRequireAuth.mockResolvedValue({ userId: 'user2', role: 'user' })
-    mockCanCreateCrag.mockReturnValue(false)
-    mockGetAllCrags.mockResolvedValue(ALL_CRAGS as Crag[])
-    mockGetCragPermissions.mockResolvedValue([])
-
-    const res = await GET(createRequest())
-    expect(res.status).toBe(200)
-    const data = await res.json()
-    expect(data.crags).toEqual([])
+describe('PWA 可编辑岩场列表与真实共享入口权限', () => {
+  it('创建者无grant也能进入和看到岩场，以manager展示；孤儿grant不生成岩场', async () => {
+    expect(await canAccessEditor(fixtures.userId, fixtures.role)).toBe(true)
+    const response = await GET(new NextRequest('http://localhost:3000/api/editor/crags'))
+    const data = await response.json()
+    expect(data.crags.map((c: { id: string }) => c.id)).toEqual(['granted', 'created'])
+    expect(data.crags.every((c: { permissionRole: string }) => c.permissionRole === 'manager')).toBe(true)
+    expect(data.role).toBe('user')
     expect(data.canCreate).toBe(false)
   })
 
-  it('should include role and canCreate in response', async () => {
-    mockRequireAuth.mockResolvedValue({ userId: 'user1', role: 'user' })
-    mockCanCreateCrag.mockReturnValue(true)
-    mockGetAllCrags.mockResolvedValue(ALL_CRAGS as Crag[])
-    mockGetCragPermissions.mockResolvedValue([
-      { userId: 'user1', cragId: 'crag-1', role: 'manager', assignedBy: 'system', createdAt: new Date() },
-    ])
-
-    const res = await GET(createRequest())
-    const data = await res.json()
-    expect(data.role).toBe('user')
+  it('admin可见全部，保留已有岩场manager展示，其余显示admin', async () => {
+    fixtures.role = 'admin'
+    const response = await GET(new NextRequest('http://localhost:3000/api/editor/crags'))
+    const data = await response.json()
+    expect(data.crags.map((c: { permissionRole: string }) => c.permissionRole)).toEqual(['manager', 'admin', 'admin'])
     expect(data.canCreate).toBe(true)
   })
 
-  it('should not include crags without permission records', async () => {
-    mockRequireAuth.mockResolvedValue({ userId: 'user1', role: 'user' })
-    mockCanCreateCrag.mockReturnValue(false)
-    mockGetAllCrags.mockResolvedValue(ALL_CRAGS as Crag[])
-    mockGetCragPermissions.mockResolvedValue([
-      { userId: 'user1', cragId: 'crag-2', role: 'manager', assignedBy: 'admin1', createdAt: new Date() },
-    ])
+  it('无授权且非创建者不显示入口或任何岩场', async () => {
+    fixtures.userId = 'unprivileged'
+    expect(await canAccessEditor(fixtures.userId, fixtures.role)).toBe(false)
+    const response = await GET(new NextRequest('http://localhost:3000/api/editor/crags'))
+    expect((await response.json()).crags).toEqual([])
+  })
 
-    const res = await GET(createRequest())
-    const data = await res.json()
-    expect(data.crags).toHaveLength(1)
-    expect(data.crags[0].id).toBe('crag-2')
-    // crag-1 和 crag-3 不应出现
+  it('未登录拒绝读取', async () => {
+    fixtures.authenticated = false
+    expect((await GET(new NextRequest('http://localhost:3000/api/editor/crags'))).status).toBe(401)
   })
 })

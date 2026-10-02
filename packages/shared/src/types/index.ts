@@ -65,6 +65,7 @@ export interface RouteTopoAnnotation {
 // 线路数据类型
 export interface Route {
   id: number
+  topoVersion?: number // Topo 条件写入版本；历史缺省为 0，Beta/元数据不递增
   name: string
   grade: string // V0-V13 或 "？"
   cragId: string

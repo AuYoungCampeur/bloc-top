@@ -24,6 +24,7 @@ import {
   updateStaleness,
   getStaleInfo,
   OFFLINE_META_EVENT,
+  META_STORAGE_KEY,
 } from '@/lib/offline-storage'
 
 export interface UseOfflineDownloadReturn {
@@ -131,8 +132,15 @@ export function useOfflineDownload(): UseOfflineDownloadReturn {
   }, [refreshList])
 
   useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === META_STORAGE_KEY || event.key === null) refreshList()
+    }
     window.addEventListener(OFFLINE_META_EVENT, refreshList)
-    return () => window.removeEventListener(OFFLINE_META_EVENT, refreshList)
+    window.addEventListener('storage', onStorage)
+    return () => {
+      window.removeEventListener(OFFLINE_META_EVENT, refreshList)
+      window.removeEventListener('storage', onStorage)
+    }
   }, [refreshList])
 
   /**

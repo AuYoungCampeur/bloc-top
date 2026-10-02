@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
       metadata: { prefectureId: id, name },
     })
 
-    revalidateHomePage()
+    await revalidateHomePage()
 
     return NextResponse.json({ success: true, prefecture }, { status: 201 })
   } catch (error) {

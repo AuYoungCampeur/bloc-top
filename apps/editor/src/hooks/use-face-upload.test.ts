@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useFaceUpload } from './use-face-upload'
+import { PUBLISHING_DELAY_MESSAGE } from '@/lib/publishing-feedback'
 
 const fixtures = vi.hoisted(() => ({ toast: vi.fn() }))
 vi.mock('@bloctop/ui/components/toast', () => ({ useToast: () => ({ showToast: fixtures.toast }) }))
@@ -20,6 +21,17 @@ beforeEach(() => {
 })
 
 describe('真实 useFaceUpload 条件写入工作流', () => {
+  it('通知延迟不把已上传视为失败，采用回调并清空文件且不重传', async () => {
+    const { result } = setup()
+    const success = vi.fn()
+    const saved = { success: true, url: 'saved', refreshPending: true, routes: [] }
+    vi.mocked(fetch).mockResolvedValueOnce(response(saved))
+    await act(async () => { expect(await result.current.doUpload({ ...target, onSuccess: success })).toBe(true) })
+    expect(success).toHaveBeenCalledWith('saved', saved)
+    expect(result.current.uploadedFile).toBeNull()
+    expect(fixtures.toast).toHaveBeenCalledWith(PUBLISHING_DELAY_MESSAGE, 'info', 8000)
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
   it.each([403, 500])('检查返回 %s 不直接上传，保留文件并提示可重试', async status => {
     const { result } = setup()
     vi.mocked(fetch).mockResolvedValueOnce(response({ success: false, error: `检查失败 ${status}` }, false))

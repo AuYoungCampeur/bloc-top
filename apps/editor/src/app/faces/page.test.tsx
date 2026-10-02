@@ -6,6 +6,7 @@ import type { FaceDetailPanel } from '@/components/editor/face-detail-panel'
 import type { FaceListPanel } from '@/components/editor/face-list-panel'
 import type { OverwriteConfirmDialog } from '@/components/editor/overwrite-confirm-dialog'
 import type { ComponentProps } from 'react'
+import { PUBLISHING_DELAY_MESSAGE } from '@/lib/publishing-feedback'
 
 const fixtures = vi.hoisted(() => ({ routes: [] as Route[], toast: vi.fn(), updateAreas: vi.fn(), invalidate: vi.fn() }))
 vi.mock('@/hooks/use-crag-routes', async () => {
@@ -69,6 +70,16 @@ beforeEach(() => {
 })
 
 describe('真实岩面页面、上传 hook 与服务器结果', () => {
+  it('覆盖实际保存但发布延迟时采用服务器Topo版本，只显示一次警告并完成上传', async () => {
+    const user = await upload()
+    await screen.findByRole('dialog')
+    const saved = { ...fixtures.routes[0], topoVersion: 3, topoAnnotations: [fixtures.routes[0].topoAnnotations![0]] }
+    vi.mocked(fetch).mockResolvedValueOnce(response({ success: true, url: 'saved', routes: [saved], refreshPending: true }))
+    await user.click(screen.getByRole('button', { name: '确认覆盖' }))
+    await waitFor(() => expect(screen.getAllByText('当前 北区/same 线路 3')).toHaveLength(2))
+    expect(fixtures.toast).toHaveBeenCalledExactlyOnceWith(PUBLISHING_DELAY_MESSAGE, 'info', 8000)
+    expect(vi.mocked(fetch).mock.calls.filter(([, init]) => (init?.body as FormData | undefined)?.has('file'))).toHaveLength(1)
+  })
   it('覆盖入口只列目标区域的每个 Topo 视角，确认带 ETag，详情立即反映权威清图结果', async () => {
     const user = await upload()
     expect(await screen.findByText('清除目标 Topo 1,3')).toBeInTheDocument()

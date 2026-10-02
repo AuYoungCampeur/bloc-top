@@ -6,6 +6,7 @@ import { ObjectId } from 'mongodb'
 import type { WithId, Document } from 'mongodb'
 import { normalizeRouteTopoUpdates } from '../face-references'
 import { allocateRouteId } from '../route-id'
+import { getRouteTopoVersion, hasRouteTopoChanges, hasRouteTopoUpdates, ROUTE_TOPO_FIELDS, TopoVersionError } from '../route-topo-version'
 import { normalizeCragGrantUserId, CragPermissionConflictError, getCragGrantId, getCragGrantUserFilter, assertCragGrantIdentity } from '../crag-grant'
 
 // 创建数据库模块专用 logger
@@ -37,7 +38,7 @@ function toCrag(doc: WithId<Document>): Crag {
 function toRoute(doc: WithId<Document>): Route {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { _id, createdAt, updatedAt, ...rest } = doc
-  return { id: _id as unknown as number, ...rest } as Route
+  return { id: _id as unknown as number, ...rest, topoVersion: getRouteTopoVersion(rest as Route) } as Route
 }
 
 /**
@@ -490,42 +491,64 @@ export async function getRouteCountByCragId(cragId: string): Promise<number> {
  */
 export async function updateRoute(
   id: number,
-  updates: Partial<Omit<Route, 'id'>>
+  updates: Partial<Omit<Route, 'id' | 'topoVersion'>>,
+  options: { expectedTopoVersion?: number } = {},
 ): Promise<Route | null> {
   const start = Date.now()
 
   try {
     const db = await getDatabase()
-
-    const normalized = normalizeRouteTopoUpdates(updates)
-    const updateData: Document = { updatedAt: new Date() }
-    const unset: Document = {}
-    for (const [field, value] of Object.entries(normalized)) {
-      if (value === undefined) unset[field] = ''
-      else updateData[field] = value
+    if (Object.hasOwn(updates, 'topoVersion')) throw new TypeError('Topo 版本由服务器维护')
+    const expectedVersion = options.expectedTopoVersion
+    if (expectedVersion !== undefined && (!Number.isSafeInteger(expectedVersion) || expectedVersion < 0)) {
+      throw new TypeError('expectedTopoVersion 必须是非负安全整数')
     }
-
-    const result = await db.collection('routes').findOneAndUpdate(
-      { _id: toMongoId(id) },
-      { $set: updateData, ...(Object.keys(unset).length ? { $unset: unset } : {}) },
-      { returnDocument: 'after' }
-    )
-
-    if (!result) {
-      log.info(`Route not found for update: ${id}`, {
-        action: 'updateRoute',
-        duration: Date.now() - start,
-      })
-      return null
+    const collection = db.collection('routes')
+    const topoRequested = hasRouteTopoUpdates(updates)
+    // Area changes may materialize a legacy faceArea while preserving its image
+    // identity. Guard that derived write too, without advancing the Topo version.
+    const needsSnapshot = topoRequested || Object.hasOwn(updates, 'area')
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const current = needsSnapshot ? await collection.findOne({ _id: toMongoId(id) }) : null
+      if (needsSnapshot && !current) return null
+      const route = current ? toRoute(current) : undefined
+      const normalized = normalizeRouteTopoUpdates(updates, route)
+      const changed = !!route && topoRequested && hasRouteTopoChanges(route, normalized)
+      if (topoRequested && route) {
+        if (expectedVersion !== undefined && expectedVersion !== getRouteTopoVersion(route)) throw new TopoVersionError(409, route)
+        if (changed && expectedVersion === undefined) throw new TopoVersionError(428, route)
+        // An unchanged old payload must never write a stale Topo snapshot later.
+        if (!changed) for (const field of ROUTE_TOPO_FIELDS) delete normalized[field]
+      }
+      const filter: Document = { _id: toMongoId(id) }
+      if (current) {
+        filter.cragId = current.cragId; filter.area = current.area
+        filter.topoVersion = Object.hasOwn(current, 'topoVersion') ? current.topoVersion : { $exists: false }
+        for (const field of ROUTE_TOPO_FIELDS) filter[field] = Object.hasOwn(current, field) ? current[field] : { $exists: false }
+      }
+      const set: Document = { updatedAt: new Date() }
+      const unset: Document = {}
+      for (const [field, value] of Object.entries(normalized)) {
+        if (value === undefined) unset[field] = ''
+        else set[field] = value
+      }
+      if (changed && getRouteTopoVersion(route!) >= Number.MAX_SAFE_INTEGER) throw new TopoVersionError(409, route!)
+      const result = await collection.findOneAndUpdate(filter, {
+        $set: set, ...(Object.keys(unset).length ? { $unset: unset } : {}),
+        ...(changed ? { $inc: { topoVersion: 1 } } : {}),
+      }, { returnDocument: 'after' })
+      if (result) {
+        log.info(`Updated route: ${id}`, {
+          action: 'updateRoute', duration: Date.now() - start,
+          metadata: { routeId: id, fields: Object.keys(updates) },
+        })
+        return toRoute(result)
+      }
+      if (!needsSnapshot) return null
     }
-
-    log.info(`Updated route: ${id}`, {
-      action: 'updateRoute',
-      duration: Date.now() - start,
-      metadata: { routeId: id, fields: Object.keys(updates) },
-    })
-
-    return toRoute(result)
+    const latest = await collection.findOne({ _id: toMongoId(id) })
+    if (!latest) return null
+    throw new TopoVersionError(409, toRoute(latest))
   } catch (error) {
     log.error(`Failed to update route: ${id}`, error, {
       action: 'updateRoute',
@@ -541,7 +564,7 @@ export async function updateRoute(
  * 使用持久计数器分配递增 ID；删除不回收 ID
  */
 export async function createRoute(
-  data: Omit<Route, 'id' | 'topoLine' | 'betaLinks' | 'image'>
+  data: Omit<Route, 'id' | 'topoVersion' | 'topoLine' | 'betaLinks' | 'image'>
 ): Promise<Route> {
   const start = Date.now()
 
@@ -556,6 +579,7 @@ export async function createRoute(
     const doc = {
       _id: toMongoId(newId),
       ...fields,
+      topoVersion: 0,
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -568,7 +592,7 @@ export async function createRoute(
       metadata: { routeId: newId, name: data.name, cragId: data.cragId },
     })
 
-    return { id: newId, ...fields } as Route
+    return { id: newId, ...fields, topoVersion: 0 } as Route
   } catch (error) {
     log.error('Failed to create route', error, {
       action: 'createRoute',

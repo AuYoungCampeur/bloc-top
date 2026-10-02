@@ -12,7 +12,7 @@ const getDatabase = vi.fn(async () => ({ collection: () => ({ findOne: findCrag,
 const getObjectStore = vi.fn(() => store)
 const requireAuth = vi.fn(async (): Promise<typeof auth | NextResponse> => auth)
 const canEditCrag = vi.fn(async () => true)
-const revalidateCragPages = vi.fn(async () => {})
+const revalidateCragPages = vi.fn<() => Promise<void | { ok: boolean }>>(async () => {})
 const handlers = createFaceHandlers({ getDatabase, getObjectStore, requireAuth, canEditCrag, revalidateCragPages })
 const identity = { cragId: 'crag', area: '北 区', faceId: '岩面' }
 const bodyRequest = (method: string, body: unknown) => new NextRequest('http://localhost/api/faces', { method, body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } })
@@ -83,6 +83,13 @@ describe('NextRequest face/upload boundary', () => {
     expect((await handlers.POST(upload())).status).toBe(409)
     expect((await handlers.POST(upload({ overwrite: 'true', expectedEtag: 'stale' }))).status).toBe(409)
     expect((await handlers.POST(upload({ overwrite: 'true', expectedEtag: 'old' }))).status).toBe(200)
+    expect(store.put).toHaveBeenCalledTimes(1)
+  })
+  it('keeps the successful upload and returns delayed-publication feedback when refresh fails', async () => {
+    revalidateCragPages.mockResolvedValueOnce({ ok: false })
+    const response = await handlers.POST(upload())
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ success: true, refreshPending: true, url: expect.any(String) })
     expect(store.put).toHaveBeenCalledTimes(1)
   })
   it('transport version conflict is visible as 409', async () => {

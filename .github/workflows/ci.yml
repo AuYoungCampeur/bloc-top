@@ -70,9 +70,10 @@ jobs:
           fi
           node scripts/offline-hydration-smoke.mjs
           node scripts/offline-sw-smoke.mjs
-          node scripts/offline-download-basic-smoke.mjs
+          node scripts/offline-download-smoke.mjs
+          node scripts/online-media-smoke.mjs
 
-      - name: Verify both application sessions and Beta visibility with isolated Mongo
+      - name: Verify Mongo writes and both application sessions with isolated data
         shell: bash
         run: |
           # Docker Official Image mongo 8.0.32, Linux amd64 manifest pinned.
@@ -98,7 +99,9 @@ jobs:
             exit 1
           fi
           BLOCTOP_TEST_MONGODB_URI='mongodb://127.0.0.1:37117/?replicaSet=bloctop-test' \
-            node apps/pwa/scripts/admin-session-smoke.mjs --auth-only
+            pnpm --filter @bloctop/shared test:integration:mongo
+          BLOCTOP_TEST_MONGODB_URI='mongodb://127.0.0.1:37117/?replicaSet=bloctop-test' \
+            node apps/pwa/scripts/admin-session-smoke.mjs
 
   required-checks:
     # Keep the existing protected-branch check names. Each requires the complete

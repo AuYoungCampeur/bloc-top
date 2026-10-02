@@ -1,58 +1,51 @@
-const PWA_URL = process.env.NEXT_PUBLIC_PWA_URL  // https://bouldering.top
-const SECRET = process.env.REVALIDATE_SECRET     // 与 PWA 共享的密钥
-
 const LOCALES = ['zh', 'en', 'fr'] as const
+const TIMEOUT_MS = 3000
 
-/**
- * 通过 webhook 通知 PWA 重验证指定页面
- *
- * Editor 是独立 app，无法直接调用 PWA 的 revalidatePath()。
- * 通过 HTTP POST 到 PWA 的 /api/revalidate 端点实现跨应用缓存失效。
- * 失败不阻塞 editor 操作 — ISR 超时是安全网。
- */
-export async function revalidatePwa(options: {
-  paths?: string[]
-  tags?: string[]
-}) {
-  if (!PWA_URL || !SECRET) {
-    console.warn('[revalidate-pwa] Missing NEXT_PUBLIC_PWA_URL or REVALIDATE_SECRET')
-    return
+export type RevalidationResult = { ok: true } | {
+  ok: false
+  reason: 'not-configured' | 'http' | 'timeout' | 'network'
+  status?: number
+}
+
+/** Await this bounded notification before completing a mutation response. */
+export async function revalidatePwa(options: { paths?: string[]; tags?: string[] }): Promise<RevalidationResult> {
+  const configuredUrl = process.env.NEXT_PUBLIC_PWA_URL
+  const secret = process.env.REVALIDATE_SECRET
+  if (!configuredUrl || !secret) {
+    console.warn('[revalidate-pwa] Notification not configured')
+    return { ok: false, reason: 'not-configured' }
   }
-
-  // 为每个路径生成所有 locale 版本
-  const localizedPaths = options.paths?.flatMap(p =>
-    LOCALES.map(locale => `/${locale}${p}`)
-  ) ?? []
-
+  const paths = options.paths?.flatMap(path => LOCALES.map(locale => `/${locale}${path}`)) ?? []
   try {
-    const res = await fetch(`${PWA_URL}/api/revalidate`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${SECRET}`,
-      },
-      body: JSON.stringify({
-        paths: localizedPaths,
-        tags: options.tags,
-      }),
-    })
-
-    if (!res.ok) {
-      console.error(`[revalidate-pwa] Failed: ${res.status}`)
+    const endpoint = new URL('/api/revalidate', configuredUrl)
+    // The verified production apex redirects to www. Fetch would remove the
+    // Bearer header across origins; send directly to the canonical host.
+    if (endpoint.protocol === 'https:' && endpoint.hostname === 'bouldering.top' && !endpoint.port) {
+      endpoint.hostname = 'www.bouldering.top'
     }
+    const response = await fetch(endpoint, {
+      method: 'POST', redirect: 'manual', cache: 'no-store',
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${secret}` },
+      body: JSON.stringify({ paths, tags: options.tags }),
+    })
+    if (!response.ok) {
+      console.error('[revalidate-pwa] Notification rejected:', response.status)
+      return { ok: false, reason: 'http', status: response.status }
+    }
+    return { ok: true }
   } catch (error) {
-    console.error('[revalidate-pwa] Webhook failed:', error)
+    const name = error !== null && typeof error === 'object' && 'name' in error ? error.name : undefined
+    const reason = name === 'TimeoutError' || name === 'AbortError' ? 'timeout' : 'network'
+    console.error('[revalidate-pwa] Notification failed:', reason)
+    return { ok: false, reason }
   }
 }
 
-/** 重验证岩场相关页面 + 线路列表页 */
-export async function revalidateCragPages(cragId: string) {
-  await revalidatePwa({
-    paths: [`/crag/${cragId}`, '/', '/route'],
-  })
+export function revalidateCragPages(cragId: string) {
+  return revalidatePwa({ paths: [`/crag/${cragId}`, '', '/route'] })
 }
 
-/** 重验证首页 */
-export async function revalidateHomePage() {
-  await revalidatePwa({ paths: ['/'] })
+export function revalidateHomePage() {
+  return revalidatePwa({ paths: [''] })
 }

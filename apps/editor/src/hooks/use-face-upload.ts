@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useToast } from '@bloctop/ui/components/toast'
 import type { FaceMutationResult } from '@/lib/face-state'
+import { publishingDelayMessage } from '@/lib/publishing-feedback'
 
 interface UploadTarget { cragId: string; faceId: string; area: string }
 interface UploadParams extends UploadTarget {
@@ -100,6 +101,7 @@ export function useFaceUpload() {
         throw new Error(data.error || '上传失败')
       }
       await onSuccess(data.url, data)
+      if (data.refreshPending) showToast(publishingDelayMessage(data.warning), 'info', 8000)
       if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
       previewUrlRef.current = null
       fileRef.current = null

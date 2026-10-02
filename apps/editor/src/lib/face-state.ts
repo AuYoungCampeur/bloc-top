@@ -8,6 +8,7 @@ export interface FaceMutationResult {
   warning?: string
   referencesChanged?: boolean
   imageChanged?: boolean
+  refreshPending?: boolean
 }
 
 export function buildFaceGroups(faces: R2FaceInfo[], routes: Route[], cragId: string,
@@ -27,9 +28,10 @@ export function applyFaceRoutes(current: Route[], saved: Route[]): Route[] {
   const updates = new Map(saved.map(route => [route.id, route]))
   return current.map(route => {
     const update = updates.get(route.id)
-    return update?.cragId === route.cragId ? {
+    return update?.cragId === route.cragId && (update.topoVersion ?? 0) >= (route.topoVersion ?? 0) ? {
       ...route, faceId: update.faceId, faceArea: update.faceArea,
       topoLine: update.topoLine, topoTension: update.topoTension, topoAnnotations: update.topoAnnotations,
+      topoVersion: update.topoVersion ?? 0,
     } : route
   })
 }

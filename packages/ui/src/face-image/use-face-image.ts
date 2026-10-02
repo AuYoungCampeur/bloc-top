@@ -27,7 +27,7 @@ import type { ImageSource, FaceImageStatus, UseFaceImageResult } from './types'
  * // 配合原生 img
  * <img src={src!} onLoad={onLoad} onError={onError} />
  */
-export function useFaceImage(source: ImageSource | null): UseFaceImageResult {
+export function useFaceImage(source: ImageSource | null, mediaRevision?: string): UseFaceImageResult {
   const cache = useContext(FaceImageCacheContext)
   const [status, setStatus] = useState<FaceImageStatus>('idle')
   // 递增值用于强制 re-render (缓存失效时触发)
@@ -38,7 +38,7 @@ export function useFaceImage(source: ImageSource | null): UseFaceImageResult {
   const faceKey = source ? FaceImageCacheService.getFaceKey(source) : null
 
   // 计算图片 URL (每次 render 从 cache service 获取最新版本号)
-  const src = source ? cache.getImageUrl(source) : null
+  const src = source ? cache.getImageUrl(source, mediaRevision) : null
 
   // URL 变化时重置加载状态 (渲染期间调整状态，非 effect)
   // See: https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
@@ -61,8 +61,12 @@ export function useFaceImage(source: ImageSource | null): UseFaceImageResult {
     })
   }, [faceKey, cache])
 
-  const onLoad = useCallback(() => setStatus('loaded'), [])
-  const onError = useCallback(() => setStatus('error'), [])
+  const onLoad = useCallback(() => {
+    if (prevSrcRef.current === src) setStatus('loaded')
+  }, [src])
+  const onError = useCallback(() => {
+    if (prevSrcRef.current === src) setStatus('error')
+  }, [src])
   const retry = useCallback(() => {
     setRenderKey(k => k + 1)
     setStatus('loading')

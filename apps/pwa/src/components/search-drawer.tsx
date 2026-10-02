@@ -41,7 +41,10 @@ export function SearchDrawer({
   const inputRef = useRef<HTMLInputElement>(null)
 
   // 线路详情抽屉状态
-  const [selectedRoute, setSelectedRoute] = useState<Route | null>(null)
+  const [routeSelection, setRouteSelection] = useState<Route | null>(null)
+  const selectedRoute = routeSelection
+    ? allRoutes.find(route => route.id === routeSelection.id && route.cragId === routeSelection.cragId) ?? null
+    : null
   const [isDetailOpen, setIsDetailOpen] = useState(false)
 
   // 打开时聚焦输入框
@@ -57,7 +60,7 @@ export function SearchDrawer({
 
   // 处理线路点击 - 打开详情抽屉
   const handleRouteClick = (route: Route) => {
-    setSelectedRoute(route)
+    setRouteSelection(route)
     setIsDetailOpen(true)
   }
 
@@ -73,7 +76,7 @@ export function SearchDrawer({
 
   // 处理线路切换（Topo 叠加层点击其他线路起点）
   const handleRouteChange = useCallback((route: Route) => {
-    setSelectedRoute(route)
+    setRouteSelection(route)
   }, [])
 
   // 跳转到线路页面并带上搜索词（携带城市参数）

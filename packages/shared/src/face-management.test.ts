@@ -40,6 +40,7 @@ function fixture(initial: Document[]) {
       if (!target) return null
       Object.assign(target, structuredClone(update.$set))
       for (const field of Object.keys(update.$unset ?? {})) delete target[field]
+      for (const [field, amount] of Object.entries(update.$inc ?? {})) target[field] = (target[field] ?? 0) + (amount as number)
       return structuredClone(target)
     }),
   }
@@ -78,6 +79,8 @@ describe('face management identity, concurrency and partial failure', () => {
     expect(f.docs[0]).toMatchObject({ faceId: 'new', faceArea: 'B', topoAnnotations: [{ area: 'B', faceId: 'new' }, { area: 'C', faceId: 'wall' }] })
     expect(f.docs[1]).toEqual(record(2, { faceId: 'wall', topoLine: line }))
     expect(f.docs[2].topoAnnotations[1].faceId).toBe('new')
+    expect(result.routes.map(route => route.topoVersion)).toEqual([1, 1])
+    expect(f.docs[1]).not.toHaveProperty('topoVersion')
     expect(f.objects.has(source)).toBe(false)
     expect(f.events.indexOf('db-update')).toBeGreaterThan(f.events.indexOf('copy'))
     expect(f.events.indexOf('delete')).toBeGreaterThan(f.events.lastIndexOf('db-update'))
@@ -109,6 +112,7 @@ describe('face management identity, concurrency and partial failure', () => {
     await f.management.remove(face)
     for (const key of ['faceId', 'faceArea', 'topoLine', 'topoTension']) expect(f.docs[0]).not.toHaveProperty(key)
     expect(f.docs[0].topoAnnotations).toEqual([])
+    expect(f.docs[0].topoVersion).toBe(1)
   })
   it('DB rename failure keeps both files and exposes a partial target creation', async () => {
     const f = fixture([record(1, { topoAnnotations: [annotation('B')] })])

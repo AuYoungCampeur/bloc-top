@@ -5,6 +5,7 @@ import type { Route } from '@bloctop/shared/types'
 import type { FaceImageCacheService } from '@bloctop/ui/face-image'
 import { preloadImage } from '@bloctop/shared/editor-utils'
 import { applyFaceRoutes, buildFaceGroups, type FaceMutationResult } from '@/lib/face-state'
+import { publishingDelayMessage } from '@/lib/publishing-feedback'
 
 export const FACE_ID_PATTERN = /^[\u4e00-\u9fffa-z0-9-]+$/
 export const FACE_ID_CLEANUP = /[^\u4e00-\u9fffa-z0-9-]/g
@@ -130,7 +131,8 @@ export function useFaceData({
         : '岩面已删除'
       if (data.partial) await refreshContext(selectedCragId)
       if (currentCragRef.current !== selectedCragId) return false
-      showToast(data.warning || msg, data.partial ? 'info' : 'success', data.partial ? 5000 : 3000)
+      showToast(data.refreshPending ? publishingDelayMessage(data.warning) : data.warning || msg,
+        data.refreshPending || data.partial ? 'info' : 'success', data.refreshPending ? 8000 : data.partial ? 5000 : 3000)
       return true
     } catch (error) {
       if (currentCragRef.current === selectedCragId) showToast(error instanceof Error ? error.message : '删除失败', 'error', 4000)
@@ -172,7 +174,8 @@ export function useFaceData({
       const msg = data.routesUpdated > 0 ? `已重命名，${data.routesUpdated} 条线路已更新` : '岩面已重命名'
       if (data.partial) await refreshContext(selectedCragId)
       if (currentCragRef.current !== selectedCragId) return false
-      showToast(data.warning || msg, data.partial ? 'info' : 'success', data.partial ? 5000 : 3000)
+      showToast(data.refreshPending ? publishingDelayMessage(data.warning) : data.warning || msg,
+        data.refreshPending || data.partial ? 'info' : 'success', data.refreshPending ? 8000 : data.partial ? 5000 : 3000)
       return trimmed
     } catch (error) {
       if (currentCragRef.current === selectedCragId) showToast(error instanceof Error ? error.message : '重命名失败', 'error', 4000)
@@ -206,7 +209,8 @@ export function useFaceData({
     try { await preloadImage(versionedUrl) } catch { previewFailed = true }
     if (currentCragRef.current !== cragId) return false
     if (previewFailed) showToast('照片已上传，预览加载失败，请刷新', 'info', 4000)
-    showToast(params.result?.warning || '照片上传成功！', params.result?.partial ? 'info' : 'success', params.result?.partial ? 5000 : 3000)
+    // The upload hook owns publishing-delay feedback after accepting this result.
+    if (!params.result?.refreshPending) showToast(params.result?.warning || '照片上传成功！', params.result?.partial ? 'info' : 'success', params.result?.partial ? 5000 : 3000)
 
     if (isCreating) {
       if (newArea && !persistedAreas.includes(newArea)) {

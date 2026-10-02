@@ -10,6 +10,7 @@ export function revalidateCragPages(cragId: string) {
   for (const locale of LOCALES) {
     revalidatePath(`/${locale}/crag/${cragId}`)
     revalidatePath(`/${locale}`)
+    revalidatePath(`/${locale}/route`)
   }
 }
 

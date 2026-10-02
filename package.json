@@ -27,7 +27,8 @@
     ],
     "overrides": {
       "sharp": "0.35.5",
-      "defu": "6.1.7"
+      "defu": "6.1.7",
+      "vitest": "4.1.11"
     }
   },
   "devDependencies": {

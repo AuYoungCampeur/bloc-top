@@ -88,9 +88,9 @@ export async function PATCH(
       metadata: { cragId: id, fields: Object.keys(updates) },
     })
 
-    revalidateCragPages(id)
+    const publication = await revalidateCragPages(id)
 
-    return NextResponse.json({ success: true, crag })
+    return NextResponse.json({ success: true, crag, ...(publication?.ok === false ? { refreshPending: true } : {}) })
   } catch (error) {
     log.error('Failed to update crag', error, {
       action: 'PATCH /api/crags/[id]',

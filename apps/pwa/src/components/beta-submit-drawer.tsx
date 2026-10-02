@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useTranslations } from 'next-intl'
 import { Link2, User, Ruler, MoveHorizontal, Check, AlertCircle, LogIn } from 'lucide-react'
 import { Drawer } from '@/components/ui/drawer'
@@ -30,7 +30,11 @@ export function BetaSubmitDrawer({
   const tAuth = useTranslations('Auth')
   const tApiError = useTranslations('APIError')
   const session = useSession()
-  const isLoggedIn = !!session.data
+  const userId = session.data?.user?.id
+  const sessionId = session.data?.session?.id
+  const actor = `${userId ?? 'anonymous'}:${sessionId ?? ''}`
+  const nicknameKey = userId ? `beta_nickname:user:${userId}` : 'beta_nickname:anonymous'
+  const isLoggedIn = !!userId && !!sessionId
   const pathname = usePathname()
   const { bodyData, updateBodyData } = useClimberBodyData()
   const [url, setUrl] = useState('')
@@ -40,15 +44,36 @@ export function BetaSubmitDrawer({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
+  const generation = useRef(0)
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // An in-flight POST can still save after leaving this form. Its response
+  // belongs only to the account, route and drawer opening that submitted it.
+  useEffect(() => {
+    generation.current += 1
+    async function resetContext() {
+      setUrl('')
+      setError(null)
+      setSuccess(false)
+      setIsSubmitting(false)
+    }
+    resetContext()
+    return () => {
+      generation.current += 1
+      if (closeTimer.current) clearTimeout(closeTimer.current)
+      closeTimer.current = null
+    }
+  }, [actor, routeId, isOpen])
 
   // 抽屉打开时，用缓存数据预填充表单
   useEffect(() => {
     if (isOpen) {
-      setNickname(localStorage.getItem('beta_nickname') || '')
+      // The legacy global nickname has unknown ownership; never import it.
+      try { setNickname(localStorage.getItem(nicknameKey) || '') } catch { setNickname('') }
       setHeight(bodyData.height)
       setReach(bodyData.reach)
     }
-  }, [isOpen, bodyData.height, bodyData.reach])
+  }, [isOpen, actor, routeId, nicknameKey, bodyData.height, bodyData.reach])
 
   // 检测平台
   const detectedPlatform = url ? detectPlatformFromUrl(url) : null
@@ -96,6 +121,10 @@ export function BetaSubmitDrawer({
 
   // 关闭抽屉
   const handleClose = useCallback(() => {
+    generation.current += 1
+    if (closeTimer.current) clearTimeout(closeTimer.current)
+    closeTimer.current = null
+    setIsSubmitting(false)
     resetForm()
     onClose()
   }, [resetForm, onClose])
@@ -115,6 +144,8 @@ export function BetaSubmitDrawer({
 
     setIsSubmitting(true)
     setError(null)
+    const submittedGeneration = generation.current
+    const isCurrent = () => generation.current === submittedGeneration
 
     try {
       const response = await fetch('/api/beta', {
@@ -138,19 +169,20 @@ export function BetaSubmitDrawer({
       }
 
       const data = await response.json()
+      if (!isCurrent()) return
       setSuccess(true)
       // 使用 POST 返回的新记录立即更新当前线路，避免再读到缓存中的旧列表。
       if (data.beta) onSuccess?.(data.beta as BetaLink)
       // 提交成功后缓存昵称和身体数据
-      if (nickname.trim()) localStorage.setItem('beta_nickname', nickname.trim())
+      try { if (nickname.trim()) localStorage.setItem(nicknameKey, nickname.trim()) } catch {}
       updateBodyData({ height, reach })
-      setTimeout(() => {
-        handleClose()
+      closeTimer.current = setTimeout(() => {
+        if (isCurrent()) handleClose()
       }, 1500)
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('submitError'))
+      if (isCurrent()) setError(err instanceof Error ? err.message : t('submitError'))
     } finally {
-      setIsSubmitting(false)
+      if (isCurrent()) setIsSubmitting(false)
     }
   }
 

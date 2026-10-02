@@ -77,9 +77,9 @@ export async function POST(request: NextRequest) {
       metadata: { routeId: route.id, name: route.name, cragId: route.cragId },
     })
 
-    revalidateCragPages(route.cragId)
+    const publication = await revalidateCragPages(route.cragId)
 
-    return NextResponse.json({ success: true, route }, { status: 201 })
+    return NextResponse.json({ success: true, route, ...(publication?.ok === false ? { refreshPending: true } : {}) }, { status: 201 })
   } catch (error) {
     log.error('Failed to create route', error, {
       action: 'POST /api/routes',

@@ -26,6 +26,9 @@ import { TopoImageArea, RouteInfoSection, RouteBetaSection } from '@/components/
 import { useFaceImage, useFaceImageCache } from '@/hooks/use-face-image'
 import { useOverlayMode } from '@/hooks/use-overlay-mode'
 import { useTopoAnimation } from '@/hooks/use-topo-animation'
+import { useOnlineCragContent } from '@/hooks/use-online-crag-content'
+import { getSiblingRoutes } from '@/lib/route-utils'
+import type { OnlineCragContent } from '@/lib/online-crag-content'
 
 import type { Route, Crag, BetaLink } from '@/types'
 
@@ -38,9 +41,23 @@ interface RouteDetailDrawerProps {
   crag?: Crag | null
   /** 线路切换回调 */
   onRouteChange?: (route: Route) => void
+  /** Complete reading packet from the route list, including its media revision. */
+  readingContent?: OnlineCragContent | null
 }
 
-export function RouteDetailDrawer({
+export function RouteDetailDrawer(props: RouteDetailDrawerProps) {
+  const { route, crag, siblingRoutes, readingContent, isOpen } = props
+  const refreshKey = useMemo(() => readingContent ?? { route, crag, siblingRoutes }, [readingContent, route, crag, siblingRoutes])
+  const content = useOnlineCragContent(route?.cragId, readingContent ?? null, isOpen && !readingContent, refreshKey)
+  const currentRoute = content ? content.routes.find(item => item.id === route?.id) ?? null : route
+  return <RouteDetailDrawerContent {...props}
+    route={currentRoute}
+    crag={content?.crag ?? crag}
+    siblingRoutes={content ? getSiblingRoutes(currentRoute, content.routes) : siblingRoutes}
+  />
+}
+
+function RouteDetailDrawerContent({
   isOpen,
   onClose,
   route,
@@ -60,7 +77,7 @@ export function RouteDetailDrawer({
     isError: imageError,
     onLoad: handleImageLoad,
     onError: handleImageError,
-  } = useFaceImage(route)
+  } = useFaceImage(route, crag?.id === route?.cragId ? crag?.mediaRevision : undefined)
 
   const [imageAspectRatio, setImageAspectRatio] = useState<number | undefined>(undefined)
   const [localBetaLinks, setLocalBetaLinks] = useState<BetaLink[] | null>(null)
@@ -157,6 +174,7 @@ export function RouteDetailDrawer({
         <div className="px-4 pb-4">
           {/* Topo image area (3 modes: carousel / error / single) */}
           <TopoImageArea
+            mediaRevision={crag?.mediaRevision}
             route={route}
             routeColor={routeColor}
             topoImageUrl={topoImageUrl}
@@ -214,12 +232,12 @@ export function RouteDetailDrawer({
                   cragId: route.cragId,
                   area: overlay.topoAnnotations[activeAnnotationIndex]?.area ?? '',
                   faceId: overlay.topoAnnotations[activeAnnotationIndex]?.faceId ?? '',
-                })
+                }, crag?.mediaRevision)
               : topoImageUrl!
           }
           alt={route.name}
           images={overlay.hasMultiAnnotations ? overlay.topoAnnotations.map(a =>
-            faceImageCache.getImageUrl({ cragId: route.cragId, area: a.area, faceId: a.faceId })
+            faceImageCache.getImageUrl({ cragId: route.cragId, area: a.area, faceId: a.faceId }, crag?.mediaRevision)
           ) : undefined}
           activeImageIndex={overlay.hasMultiAnnotations ? activeAnnotationIndex : undefined}
           onImageChange={overlay.hasMultiAnnotations ? (index) => {

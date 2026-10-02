@@ -1,17 +1,20 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, render as renderUI, screen, waitFor } from '@testing-library/react'
+import type { ReactElement } from 'react'
+import { ToastProvider } from '@bloctop/ui/components/toast'
+import { PUBLISHING_DELAY_MESSAGE } from '@/lib/publishing-feedback'
 import userEvent from '@testing-library/user-event'
 import { NextRequest } from 'next/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const fixtures = vi.hoisted(() => ({
   auth: { data: { user: { id: '507f1f77bcf86cd799439011', role: 'admin' } } as { user: { id: string; role: string } } | null, isPending: false },
-  push: vi.fn(), cities: vi.fn(), create: vi.fn(),
+  push: vi.fn(), cities: vi.fn(), create: vi.fn(), publication: vi.fn(),
 }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: fixtures.push }) }))
 vi.mock('@/lib/auth-client', () => ({ useSession: () => fixtures.auth }))
 vi.mock('@/lib/auth', () => ({ getAuth: async () => ({ api: { getSession: async () => fixtures.auth.data } }) }))
 vi.mock('@/hooks/use-break-app-shell-limit', () => ({ useBreakAppShellLimit: () => {} }))
-vi.mock('@/lib/revalidate-pwa', () => ({ revalidateHomePage: vi.fn() }))
+vi.mock('@/lib/revalidate-pwa', () => ({ revalidateHomePage: fixtures.publication }))
 vi.mock('@bloctop/shared/logger', () => ({ createModuleLogger: () => ({ info: vi.fn(), error: vi.fn(), warn: vi.fn() }) }))
 vi.mock('@bloctop/shared/db', () => ({ getAllCities: fixtures.cities, getAllCrags: vi.fn(), getCragsByCityId: vi.fn() }))
 vi.mock('@bloctop/shared/crag-creation', async importOriginal => ({
@@ -25,6 +28,7 @@ import { POST } from '../../api/crags/route'
 const city = { id: 'new-city', name: '待发布城市', available: false }
 const namePlaceholder = '如：袁通寺'
 const idPlaceholder = '如：yuan-tong-si（小写字母、数字、连字符）'
+const render = (element: ReactElement) => renderUI(element, { wrapper: ToastProvider })
 
 async function fillForm(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByPlaceholderText(namePlaceholder), '袁通寺')
@@ -45,6 +49,7 @@ beforeEach(() => {
   sessionStorage.clear()
   fixtures.auth = { data: { user: { id: '507f1f77bcf86cd799439011', role: 'admin' } }, isPending: false }
   fixtures.cities.mockResolvedValue([city])
+  fixtures.publication.mockResolvedValue({ ok: true })
   fixtures.create.mockImplementation(async input => ({ crag: { ...input, areas: [] }, replayed: false }))
   globalThis.fetch = vi.fn(async (input, init) => {
     if (input === '/api/cities') return { ok: true, json: async () => ({ success: true, cities: await fixtures.cities() }) } as Response
@@ -54,6 +59,19 @@ beforeEach(() => {
 })
 
 describe('真实新建岩场页面与 POST handler', () => {
+  it('写入成功但通知失败仍清草稿并进入详情，layout Toast在页面跳转后继续可见', async () => {
+    fixtures.publication.mockResolvedValueOnce({ ok: false, reason: 'timeout' })
+    const { user, rerender } = await setup()
+    await fillForm(user)
+    await user.click(screen.getByRole('button', { name: '创建岩场' }))
+    await waitFor(() => expect(fixtures.push).toHaveBeenCalledWith('/crags/yuan-tong-si'))
+    expect(await screen.findByText(PUBLISHING_DELAY_MESSAGE)).toBeInTheDocument()
+    expect(fixtures.create).toHaveBeenCalledTimes(1)
+    expect(sessionStorage.length).toBe(0)
+    rerender(<div>新岩场详情</div>)
+    expect(screen.getByText(PUBLISHING_DELAY_MESSAGE)).toBeInTheDocument()
+  })
+
   it.each(['user', 'manager'])('深链接的 %s 看不到表单，也不加载城市或提交', async role => {
     fixtures.auth.data!.user.role = role
     render(<NewCragPage />)

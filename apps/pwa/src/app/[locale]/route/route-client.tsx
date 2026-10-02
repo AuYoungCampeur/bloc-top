@@ -1,7 +1,8 @@
 'use client'
 
 import { useMemo, useCallback, useState, useTransition, useEffect } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
+import { useRouter } from '@/i18n/navigation'
 import { useTranslations } from 'next-intl'
 import { FILTER_PARAMS, getGradesByValues, DEFAULT_SORT_DIRECTION, type SortDirection } from '@/lib/filter-constants'
 import { compareGrades } from '@/lib/grade-utils'
@@ -16,6 +17,7 @@ import { AppTabbar } from '@/components/app-tabbar'
 import type { Route, Crag } from '@/types'
 import { collectRouteFaces, matchesRouteFace, matchesRouteFaceArea } from '@/lib/route-face-filter'
 import { getFaceIdentityKey } from '@bloctop/shared/face-references'
+import { useOnlineCragContent } from '@/hooks/use-online-crag-content'
 
 const MAX_ANIMATED_CARDS = 10
 
@@ -25,7 +27,7 @@ interface RouteListClientProps {
   contextCityId?: string
 }
 
-export default function RouteListClient({ routes, crags, contextCityId }: RouteListClientProps) {
+export default function RouteListClient({ routes: initialRoutes, crags: initialCrags, contextCityId }: RouteListClientProps) {
   const t = useTranslations('RouteList')
   const tCommon = useTranslations('Common')
   const tSearch = useTranslations('Search')
@@ -39,7 +41,7 @@ export default function RouteListClient({ routes, crags, contextCityId }: RouteL
   const [isPending, startTransition] = useTransition()
 
   // 抽屉状态
-  const [selectedRoute, setSelectedRoute] = useState<Route | null>(null)
+  const [routeSelection, setRouteSelection] = useState<Route | null>(null)
   const [isDetailDrawerOpen, setIsDetailDrawerOpen] = useState(false)
 
   // 入场动画控制
@@ -51,6 +53,21 @@ export default function RouteListClient({ routes, crags, contextCityId }: RouteL
 
   // 从 URL 读取筛选状态（城市过滤已在服务端完成，客户端不再处理）
   const selectedCrag = searchParams.get(FILTER_PARAMS.CRAG) || ''
+  const seed = useMemo(() => {
+    const crag = initialCrags.find(item => item.id === selectedCrag)
+    return crag ? { crag, routes: initialRoutes.filter(route => route.cragId === selectedCrag) } : null
+  }, [initialCrags, initialRoutes, selectedCrag])
+  const readingContent = useOnlineCragContent(selectedCrag || undefined, seed)
+  const routes = useMemo(() => readingContent
+    ? [...initialRoutes.filter(route => route.cragId !== readingContent.crag.id), ...readingContent.routes]
+    : initialRoutes, [initialRoutes, readingContent])
+  const crags = useMemo(() => readingContent
+    ? initialCrags.map(crag => crag.id === readingContent.crag.id ? readingContent.crag : crag)
+    : initialCrags, [initialCrags, readingContent])
+  // Restore by identity, including new RSC props; never retain a clicked stale object.
+  const selectedRoute = routeSelection
+    ? routes.find(route => route.id === routeSelection.id && route.cragId === routeSelection.cragId) ?? null
+    : null
   const selectedArea = searchParams.get(FILTER_PARAMS.AREA) || null
   const gradeParam = searchParams.get(FILTER_PARAMS.GRADE)
   const selectedGrades = useMemo(
@@ -189,7 +206,7 @@ export default function RouteListClient({ routes, crags, contextCityId }: RouteL
 
   // 处理线路卡片点击
   const handleRouteClick = useCallback((route: Route) => {
-    setSelectedRoute(route)
+    setRouteSelection(route)
     setIsDetailDrawerOpen(true)
   }, [])
 
@@ -206,7 +223,7 @@ export default function RouteListClient({ routes, crags, contextCityId }: RouteL
 
   // 处理线路切换
   const handleRouteChange = useCallback((route: Route) => {
-    setSelectedRoute(route)
+    setRouteSelection(route)
   }, [])
 
   // Active filter tags 列表（❷ filter 汇总提示）
@@ -384,6 +401,7 @@ export default function RouteListClient({ routes, crags, contextCityId }: RouteL
         siblingRoutes={siblingRoutes}
         crag={selectedCragData}
         onRouteChange={handleRouteChange}
+        readingContent={readingContent?.crag.id === selectedRoute?.cragId ? readingContent : undefined}
       />
 
       {/* 底部导航栏 */}

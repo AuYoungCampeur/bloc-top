@@ -3,14 +3,33 @@
  * 测试 Beta 提交抽屉的表单验证和提交流程
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@/test/utils'
+import { act, render, screen, fireEvent, waitFor } from '@/test/utils'
+import type { useSession } from '@/lib/auth-client'
 import { BetaSubmitDrawer } from './beta-submit-drawer'
 
 // Mock auth-client
-const mockUseSession = vi.fn()
+const { mockUseSession, mockUpdateUser } = vi.hoisted(() => ({
+  mockUseSession: vi.fn(),
+  mockUpdateUser: vi.fn(),
+}))
 vi.mock('@/lib/auth-client', () => ({
   useSession: () => mockUseSession(),
+  authClient: { updateUser: mockUpdateUser },
 }))
+
+// Match the actual Better Auth hook payload, including the server session.
+function sessionData(userId = 'user-1', sessionId = `session-${userId}`): NonNullable<ReturnType<typeof useSession>['data']> {
+  const now = new Date('2026-10-02T10:00:00Z')
+  return {
+    user: { id: userId, name: userId, email: `${userId}@example.test`, emailVerified: true, banned: false, createdAt: now, updatedAt: now },
+    session: { id: sessionId, userId, token: 'isolated-test-token', createdAt: now, updatedAt: now, expiresAt: new Date('2026-11-01T10:00:00Z') },
+  }
+}
+function login(userId = 'user-1', sessionId?: string) {
+  mockUseSession.mockReturnValue({ data: sessionData(userId, sessionId), error: null, isPending: false, isRefetching: false, refetch: vi.fn() })
+}
+const bodyKey = (id = 'user-1') => `climber-body-data:user:${id}`
+const nicknameKey = (id = 'user-1') => `beta_nickname:user:${id}`
 
 // Mock fetch
 const mockFetch = vi.fn()
@@ -43,13 +62,12 @@ describe('BetaSubmitDrawer', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    mockFetch.mockReset()
+    mockUpdateUser.mockResolvedValue({ data: { status: true }, error: null })
     localStorageMock.clear()
     global.fetch = mockFetch
     // 默认模拟已登录状态
-    mockUseSession.mockReturnValue({
-      data: { user: { id: 'user-1', email: 'test@example.com' } },
-      isPending: false,
-    })
+    login()
     Object.defineProperty(window, 'localStorage', {
       value: localStorageMock,
       writable: true,
@@ -57,6 +75,7 @@ describe('BetaSubmitDrawer', () => {
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     vi.restoreAllMocks()
   })
 
@@ -304,10 +323,7 @@ describe('BetaSubmitDrawer', () => {
       rerender(<BetaSubmitDrawer {...defaultProps} isOpen={false} onClose={onClose} />)
       rerender(<BetaSubmitDrawer {...defaultProps} isOpen={true} onClose={onClose} />)
 
-      // 表单应该被重置
-      // 注意：由于 Drawer 关闭时会调用 handleClose 重置表单
-      // 但这取决于组件内部实现，此处仅验证重新打开不会崩溃
-      expect(screen.getByPlaceholderText('urlPlaceholder')).toBeTruthy()
+      expect((screen.getByPlaceholderText('urlPlaceholder') as HTMLInputElement).value).toBe('')
     })
   })
 
@@ -323,7 +339,7 @@ describe('BetaSubmitDrawer', () => {
     it('有缓存数据时表单应预填充身高和臂长', () => {
       // 设置缓存数据
       localStorageMock.setItem(
-        'climber-body-data',
+        bodyKey(),
         JSON.stringify({ height: '175', reach: '180' })
       )
 
@@ -373,9 +389,11 @@ describe('BetaSubmitDrawer', () => {
 
       // 验证缓存数据
       expect(localStorageMock.setItem).toHaveBeenCalledWith(
-        'climber-body-data',
+        bodyKey(),
         JSON.stringify({ height: '175', reach: '180' })
       )
+      expect(mockUpdateUser).toHaveBeenCalledExactlyOnceWith({ height: 175, reach: 180 })
+      expect(localStorageMock.setItem.mock.calls.every(([key]) => key === bodyKey())).toBe(true)
     })
 
     it('提交失败时不应更新缓存', async () => {
@@ -385,6 +403,7 @@ describe('BetaSubmitDrawer', () => {
       })
 
       render(<BetaSubmitDrawer {...defaultProps} />)
+      localStorageMock.setItem.mockClear()
 
       // 填写表单
       fireEvent.change(screen.getByPlaceholderText('urlPlaceholder'), {
@@ -400,18 +419,18 @@ describe('BetaSubmitDrawer', () => {
         expect(screen.getByText('DUPLICATE_BETA')).toBeTruthy()
       })
 
-      // 不应该调用 setItem 保存身体数据
-      // 注意：初始化时可能会调用，所以检查最后一次调用
+      // Hydration is allowed; a failed POST must not persist the submitted values.
       const setItemCalls = localStorageMock.setItem.mock.calls.filter(
-        (call: string[]) => call[0] === 'climber-body-data'
+        (call: string[]) => call[0] === bodyKey()
       )
       expect(setItemCalls.length).toBe(0)
+      expect(mockUpdateUser).not.toHaveBeenCalled()
     })
 
     it('只填写身高提交成功后应保存身高并保留旧臂长', async () => {
       // 设置旧缓存
       localStorageMock.setItem(
-        'climber-body-data',
+        bodyKey(),
         JSON.stringify({ height: '170', reach: '175' })
       )
 
@@ -441,13 +460,14 @@ describe('BetaSubmitDrawer', () => {
 
       // 验证：身高更新，臂长保留旧值
       const lastSetItemCall = localStorageMock.setItem.mock.calls
-        .filter((call: string[]) => call[0] === 'climber-body-data')
+        .filter((call: string[]) => call[0] === bodyKey())
         .pop()
 
       expect(lastSetItemCall).toBeDefined()
       const savedData = JSON.parse(lastSetItemCall![1])
       expect(savedData.height).toBe('180')
       expect(savedData.reach).toBe('175') // 保留旧值
+      expect(mockUpdateUser).toHaveBeenCalledExactlyOnceWith({ height: 180 })
     })
   })
 
@@ -477,4 +497,116 @@ describe('BetaSubmitDrawer', () => {
       expect(loginLink.closest('a')?.getAttribute('href')).toContain('/login')
     })
   })
+  describe('提交结果的账号、线路和抽屉归属', () => {
+    const beta = { id: 'saved-beta', routeId: 1, platform: 'xiaohongshu', url: 'https://xhslink.cn/o/saved' }
+    const response = () => ({ ok: true, json: async () => ({ success: true, beta }) })
+    const input = (name: string) => screen.getByPlaceholderText(name) as HTMLInputElement
+    const fill = (height = '175', name = '当前账号') => {
+      fireEvent.change(input('urlPlaceholder'), { target: { value: 'https://xhslink.cn/o/abc' } })
+      fireEvent.change(input('heightPlaceholder'), { target: { value: height } })
+      fireEvent.change(input('reachPlaceholder'), { target: { value: '180' } })
+      fireEvent.change(input('nicknamePlaceholder'), { target: { value: name } })
+    }
+    const clickSubmit = () => fireEvent.click(screen.getByText('submit'))
+
+    beforeEach(() => { vi.useFakeTimers() })
+
+    it('实际提交只写当前账号的身体数据和昵称，不认领全局、匿名或其他账号值', async () => {
+      localStorage.setItem('climber-body-data', JSON.stringify({ height: '199', reach: '200' }))
+      localStorage.setItem('beta_nickname', '未知所有者')
+      localStorage.setItem('climber-body-data:anonymous', JSON.stringify({ height: '195', reach: '196' }))
+      localStorage.setItem(bodyKey('other'), JSON.stringify({ height: '188', reach: '189' }))
+      mockFetch.mockResolvedValueOnce(response())
+      render(<BetaSubmitDrawer {...defaultProps} />)
+      expect(input('heightPlaceholder').value).toBe('')
+      expect(input('reachPlaceholder').value).toBe('')
+      expect(input('nicknamePlaceholder').value).toBe('')
+      expect(mockUpdateUser).not.toHaveBeenCalled()
+      fill()
+      await act(async () => { clickSubmit() })
+      expect(JSON.parse(localStorage.getItem(bodyKey())!)).toEqual({ height: '175', reach: '180' })
+      expect(localStorage.getItem(nicknameKey())).toBe('当前账号')
+      expect(mockUpdateUser).toHaveBeenCalledExactlyOnceWith({ height: 175, reach: 180 })
+      expect(localStorage.getItem('beta_nickname')).toBe('未知所有者')
+      expect(JSON.parse(localStorage.getItem('climber-body-data')!).height).toBe('199')
+      expect(JSON.parse(localStorage.getItem('climber-body-data:anonymous')!).height).toBe('195')
+      expect(JSON.parse(localStorage.getItem(bodyKey('other'))!).height).toBe('188')
+      expect(screen.getByText('submitSuccess')).toBeTruthy()
+      await act(async () => { vi.advanceTimersByTime(1500) })
+      expect(defaultProps.onSuccess).toHaveBeenCalledExactlyOnceWith(beta)
+      expect(defaultProps.onClose).toHaveBeenCalledOnce()
+    })
+
+    it.each(['账号切换', '同账号重新登录', '线路切换', '关闭后重开'] as const)('%s后迟到POST不能覆盖新草稿、回调或偏好', async (context) => {
+      let resolvePost!: (value: ReturnType<typeof response>) => void
+      mockFetch.mockImplementationOnce(() => new Promise(resolve => { resolvePost = resolve }))
+      const view = render(<BetaSubmitDrawer {...defaultProps} />)
+      fill()
+      clickSubmit()
+      expect(screen.getByText('submitting')).toBeTruthy()
+      let nextProps = defaultProps
+      if (context === '账号切换') login('user-2')
+      if (context === '同账号重新登录') login('user-1', 'new-session')
+      if (context === '线路切换') nextProps = { ...defaultProps, routeId: 2, routeName: '第二线路' }
+      if (context === '关闭后重开') view.rerender(<BetaSubmitDrawer {...defaultProps} isOpen={false} />)
+      view.rerender(<BetaSubmitDrawer {...nextProps} />)
+      expect(input('urlPlaceholder').value).toBe('')
+      expect(input('heightPlaceholder').value).toBe('')
+      fill('160', '新草稿')
+      await act(async () => { resolvePost(response()) })
+      await act(async () => { vi.advanceTimersByTime(1600) })
+      expect(input('heightPlaceholder').value).toBe('160')
+      expect(input('nicknamePlaceholder').value).toBe('新草稿')
+      expect(input('urlPlaceholder').disabled).toBe(false)
+      expect(screen.queryByText('submitSuccess')).toBeNull()
+      expect(defaultProps.onClose).not.toHaveBeenCalled()
+      expect(defaultProps.onSuccess).not.toHaveBeenCalled()
+      expect(mockUpdateUser).not.toHaveBeenCalled()
+      expect(localStorage.getItem(nicknameKey())).toBeNull()
+      expect(localStorage.getItem(nicknameKey('user-2'))).toBeNull()
+      expect(JSON.parse(localStorage.getItem(bodyKey())!)).toEqual({ height: '', reach: '' })
+    })
+
+    it('A迟到完成不能结束B正在进行的提交，B成功只写B账号', async () => {
+      let resolveA!: (value: ReturnType<typeof response>) => void
+      let resolveB!: (value: ReturnType<typeof response>) => void
+      mockFetch.mockImplementationOnce(() => new Promise(resolve => { resolveA = resolve }))
+      mockFetch.mockImplementationOnce(() => new Promise(resolve => { resolveB = resolve }))
+      const view = render(<BetaSubmitDrawer {...defaultProps} />)
+      fill()
+      clickSubmit()
+      login('user-2')
+      view.rerender(<BetaSubmitDrawer {...defaultProps} />)
+      fill('160', '账号B')
+      clickSubmit()
+      await act(async () => { resolveA(response()) })
+      expect(screen.getByText('submitting')).toBeTruthy()
+      expect(input('heightPlaceholder').value).toBe('160')
+      expect(mockUpdateUser).not.toHaveBeenCalled()
+      expect(defaultProps.onSuccess).not.toHaveBeenCalled()
+      await act(async () => { resolveB(response()) })
+      expect(screen.getByText('submitSuccess')).toBeTruthy()
+      expect(JSON.parse(localStorage.getItem(bodyKey('user-2'))!)).toEqual({ height: '160', reach: '180' })
+      expect(localStorage.getItem(nicknameKey('user-2'))).toBe('账号B')
+      expect(localStorage.getItem(nicknameKey())).toBeNull()
+      expect(mockUpdateUser).toHaveBeenCalledExactlyOnceWith({ height: 160, reach: 180 })
+    })
+
+    it('已成功的旧抽屉关闭定时器不能误关切换后的账号抽屉', async () => {
+      mockFetch.mockResolvedValueOnce(response())
+      const view = render(<BetaSubmitDrawer {...defaultProps} />)
+      fill()
+      await act(async () => { clickSubmit() })
+      expect(screen.getByText('submitSuccess')).toBeTruthy()
+      defaultProps.onSuccess.mockClear()
+      login('user-2')
+      view.rerender(<BetaSubmitDrawer {...defaultProps} />)
+      fill('160', '新账号')
+      await act(async () => { vi.advanceTimersByTime(1600) })
+      expect(input('nicknamePlaceholder').value).toBe('新账号')
+      expect(defaultProps.onClose).not.toHaveBeenCalled()
+      expect(defaultProps.onSuccess).not.toHaveBeenCalled()
+    })
+  })
+
 })

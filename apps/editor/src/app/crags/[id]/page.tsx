@@ -23,6 +23,8 @@ import { Textarea } from '@bloctop/ui/components/textarea'
 import { findCityName } from '@bloctop/shared/city-utils'
 import { parseCoordinateInput, formatCoordinateDisplay, truncateCoordinates } from '@bloctop/shared/coordinate-utils'
 import type { Crag, CityConfig } from '@bloctop/shared/types'
+import { useToast } from '@bloctop/ui/components/toast'
+import { publishingDelayMessage } from '@/lib/publishing-feedback'
 
 // ==================== Types ====================
 
@@ -58,6 +60,7 @@ export default function CragDetailPage({
   useBreakAppShellLimit()
 
   const router = useRouter()
+  const { showToast } = useToast()
   const { data: session } = useSession()
   const isAdmin = session?.user?.role === 'admin'
 
@@ -212,12 +215,13 @@ export default function CragDetailPage({
       setCrag(data.crag)
       setIsEditing(false)
       setEditForm(null)
+      if (data.refreshPending) showToast(publishingDelayMessage(data.warning), 'info', 8000)
     } catch {
       setSaveError('网络错误，请重试')
     } finally {
       setIsSaving(false)
     }
-  }, [editForm, crag, cragId])
+  }, [editForm, crag, cragId, showToast])
 
   const updateField = useCallback(<K extends keyof EditForm>(key: K, value: EditForm[K]) => {
     setEditForm((prev) => prev ? { ...prev, [key]: value } : prev)

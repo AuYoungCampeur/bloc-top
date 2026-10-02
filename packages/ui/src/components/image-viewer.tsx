@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useCallback, useEffect } from 'react'
+import { useRef, useCallback, useEffect, useState, useLayoutEffect } from 'react'
 import Image from 'next/image'
 import { X, ZoomIn, ZoomOut, RotateCcw, ChevronLeft, ChevronRight } from 'lucide-react'
 import {
@@ -93,6 +93,9 @@ function BottomControls({ onClose }: { onClose: () => void }) {
 
 export function ImageViewer({ isOpen, onClose, src, alt = '', children, topSlot, images, activeImageIndex, onImageChange }: ImageViewerProps) {
   const effectiveSrc = images ? (images[activeImageIndex ?? 0] ?? src) : src
+  const [loadedSrc, setLoadedSrc] = useState<string | null>(null)
+  const currentSrc = useRef(effectiveSrc)
+  useLayoutEffect(() => { currentSrc.current = effectiveSrc }, [effectiveSrc])
   const effectiveIndex = activeImageIndex ?? 0
   const canGoPrev = !!images && images.length > 1 && effectiveIndex > 0
   const canGoNext = !!images && images.length > 1 && effectiveIndex < images.length - 1
@@ -232,6 +235,7 @@ export function ImageViewer({ isOpen, onClose, src, alt = '', children, topSlot,
           >
             <div className="relative w-full h-full flex items-center justify-center">
               <Image
+                key={effectiveSrc}
                 src={effectiveSrc}
                 alt={alt}
                 fill
@@ -239,9 +243,15 @@ export function ImageViewer({ isOpen, onClose, src, alt = '', children, topSlot,
                 sizes="100vw"
                 priority
                 draggable={false}
+                onLoad={() => {
+                  if (currentSrc.current === effectiveSrc) setLoadedSrc(effectiveSrc)
+                }}
+                onError={() => {
+                  if (currentSrc.current === effectiveSrc) setLoadedSrc(null)
+                }}
               />
               {/* 叠加层内容（如 Topo 线路 SVG） */}
-              {children}
+              {loadedSrc === effectiveSrc ? children : null}
             </div>
           </TransformComponent>
         </>

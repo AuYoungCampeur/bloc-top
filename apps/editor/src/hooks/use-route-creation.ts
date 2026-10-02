@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import type { Route } from '@bloctop/shared/types'
 import { useToast } from '@bloctop/ui/components/toast'
 import { validateRouteForm } from '@/lib/route-validation'
+import { publishingDelayMessage } from '@/lib/publishing-feedback'
 
 export interface UseRouteCreationOptions {
   selectedCragId: string | null
@@ -74,7 +75,7 @@ export function useRouteCreation({
         updateCragAreas(selectedCragId, merged).catch(() => {})
       }
 
-      showToast(`线路「${created.name}」创建成功！`, 'success', 3000)
+      showToast(data.refreshPending ? publishingDelayMessage(data.warning) : `线路「${created.name}」创建成功！`, data.refreshPending ? 'info' : 'success', data.refreshPending ? 8000 : 3000)
       return created
     } catch (error) {
       showToast(error instanceof Error ? error.message : '创建失败', 'error', 4000)

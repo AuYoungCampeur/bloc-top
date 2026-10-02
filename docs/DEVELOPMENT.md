@@ -67,10 +67,11 @@ PWA 默认 3000，Editor 开发脚本固定 3001。后台首次访问会重定�
 | `pnpm test` / `pnpm test:run` | PWA、Editor、shared 的 Vitest；ui 没有独立 test script |
 | `pnpm --filter @bloctop/editor test:run` | 后台组件、hook、逻辑测试 |
 | `pnpm --filter @bloctop/shared test:run` | 权限、数据层及工具函数 |
+| `pnpm --filter @bloctop/shared test:integration:mongo` | 显式本地副本集中的事务/并发验收；不读取应用 env |
 | `pnpm test:ct` | PWA 的 Playwright 组件测试，非完整双端 E2E |
 | `pnpm build` | 两个应用的生产构建；PWA 使用 `next build --webpack` |
 
-Vitest 单元/组件测试使用 `*.test.ts(x)`，Playwright 组件测试使用 `*.ct.tsx`。Editor/PWA 声明 Vitest 4，shared 声明 Vitest 3，修改配置时注意包间差异。
+Vitest 单元/组件测试使用 `*.test.ts(x)`，Playwright 组件测试使用 `*.ct.tsx`。三个测试包及应用 coverage 均固定 Vitest 4.1.11，根 pnpm override 保证 `jest-dom/vitest` 解析到同一 runner；安装后不能只核对各包 CLI 版本，还要避免 peer 解析出的第二份 Vitest。
 
 三个 Vitest 包各限制为最多 2 个 worker，根测试命令逐包执行；pre-push 的类型、Vitest、浏览器检查也依次执行，避免共享电脑上重度并发占用 CPU/内存。真实认证库的多步骤隔离会话测试单独使用 15 秒超时；它检查行为，不测生产登录延迟。
 
@@ -84,7 +85,7 @@ Git hooks 实际行为：
 
 pre-push 的成功和失败路径已在临时 Git 仓库验证：仅检查提交快照，保留并恢复 staged、unstaged、untracked 改动及原有 stash。
 
-CI 在 Node 22/24 下分别执行全部检查与构建；四个汇总检查沿用 main 保护规则要求的 `🔍 ESLint`、`📘 TypeScript`、`🧪 Unit Tests`、`🎭 Playwright` 名称，只有整个矩阵成功才通过。
+CI 在 Node 22/24 下分别执行全部检查与构建，以及固定镜像的本地 Mongo 副本集验收和严格下载/离线浏览 smoke；四个汇总检查沿用 main 保护规则要求的 `🔍 ESLint`、`📘 TypeScript`、`🧪 Unit Tests`、`🎭 Playwright` 名称，只有整个矩阵成功才通过。
 
 仓库 [verify skill](../.agents/skills/verify/SKILL.md) 已改为上述 pnpm 工作区验证入口；它不授予提交/发布权限，也不将组件测试当作真实服务验收。
 
@@ -116,6 +117,9 @@ pnpm --filter @bloctop/pwa exec node scripts/offline-download-basic-smoke.mjs
 ```
 
 脚本仅接受没有凭据的 localhost/127.0.0.1 HTTP 服务，并拒绝非本地请求。第一项连续 60 次读取直接 Next HTML；第二项用原生 IndexedDB/Cache fixture 和真实 SW/页面，默认每种语言重复 3 次冷启动，检查刷新及旧图/单图/多图阅读。第三项在额外的 4101/4102 本地 HTTP fixture 上执行真实源码的下载按钮/provider，检查 HTTP、CORS、损坏图片失败、重试、同线路数更新及三语断网阅读；代理仅为本地媒体替换 SW 域名与 CSP。所有页面错误均失败。该流程不调用生产 Mongo/R2，不代替真实快照 API、跨标签页、Safari 或存储回收验收。
+完整离线协作检查 `scripts/offline-download-smoke.mjs` 还验证取消、迟到响应、Web Locks/BroadcastChannel 的双标签页删除/更新及清理锁，CI 使用此完整版本。`scripts/online-media-smoke.mjs` 用真实源码组件/完整源码 SW、原生 IDB/Cache 和本地 HTTP 图片验证版本更新与 Topo 配套更新；本地 sticky optimizer 适配器不能代表实际 Next SSR/图片优化服务。脚本不调用生产服务，全部页面错误均失败。
+
+真实数据库验收需显式设置 `BLOCTOP_TEST_MONGODB_URI=mongodb://127.0.0.1:37117/?replicaSet=bloctop-test`，再运行 `pnpm --filter @bloctop/shared test:integration:mongo`。只接受 loopback 和指定 replica set；每个用例创建随机 `bloctop_test_*` 库，仅清理自身创建的库。CI 使用固定 digest 的 Docker Official Image Mongo 8.0.32，退出时删除该次容器。普通 `test:run` 不运行这组真实数据库测试，不要传入应用或生产 URI。
 
 ## 6. 数据维护脚本不是初始化捷径
 
@@ -143,7 +147,7 @@ pnpm --filter @bloctop/pwa exec node scripts/offline-download-basic-smoke.mjs
 
 ## 本地生产构建的认证与 Beta 验收
 
-[admin-session-smoke.mjs](../apps/pwa/scripts/admin-session-smoke.mjs) 的 `--auth-only` 模式针对当前主线的真实密码登录、跨端 session、权限隔离、降权与退出，以及 Beta 提交即时可见/重复/刷新。需要两端已构建；仅传以下公开的本地地址，AMap 留空：
+[admin-session-smoke.mjs](../apps/pwa/scripts/admin-session-smoke.mjs) 默认完整模式使用真实密码登录、跨端 session、权限隔离、降权与退出、Beta 提交即时可见/重复/刷新，并验证首次访问的语言回跳上下文、新建岩场与创建者授权、后台内容保存到 PWA 可见。`--auth-only` 只运行认证/权限/Beta 子集。需要两端已构建；仅传以下公开的本地地址，AMap 留空：
 
 ```bash
 NEXT_PUBLIC_PWA_URL=http://localhost:4200 \
@@ -153,11 +157,11 @@ NEXT_PUBLIC_AMAP_KEY='' pnpm build
 
 # 从仓库根目录执行；仅允许明示的本地 bloctop-test replica set。
 BLOCTOP_TEST_MONGODB_URI='mongodb://127.0.0.1:37117/?replicaSet=bloctop-test' \
-  node apps/pwa/scripts/admin-session-smoke.mjs --auth-only --preflight
+  node apps/pwa/scripts/admin-session-smoke.mjs --preflight
 BLOCTOP_TEST_MONGODB_URI='mongodb://127.0.0.1:37117/?replicaSet=bloctop-test' \
-  node apps/pwa/scripts/admin-session-smoke.mjs --auth-only
+  node apps/pwa/scripts/admin-session-smoke.mjs
 ```
 
 脚本复制构建到不含 env 的自有临时目录，使用正常 Next CLI 启动并清理自身服务；创建带所有权标记的随机测试库，结束时核对标记再清理。两端真实业务/认证 API 不 mock；只有明确测试图片使用本地 PNG，天气被中止，浏览器显式没有 Service Worker 功能。这不验证 R2、邮件、Passkey、地图或 SW。
 
-CI 的 Node 22/24 矩阵运行上述模式，并用固定镜像自建本地 Mongo replica set。独立的[水合回归](../apps/pwa/scripts/offline-hydration-smoke.mjs)默认连续导航 60 次，要求直接 Next HTML，全部页面错误与非本地请求均失败；隔离空存储和城市/定位读取夹具不代表完整离线业务验收。
+CI 的 Node 22/24 矩阵运行上述完整模式，并用固定镜像自建本地 Mongo replica set。独立的[水合回归](../apps/pwa/scripts/offline-hydration-smoke.mjs)默认连续导航 60 次，要求直接 Next HTML，全部页面错误与非本地请求均失败；隔离空存储和城市/定位读取夹具不代表完整离线业务验收。

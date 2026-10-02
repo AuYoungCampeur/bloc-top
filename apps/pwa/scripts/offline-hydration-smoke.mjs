@@ -44,12 +44,30 @@ try {
     // This exact empty-list panel appears after hydration and the local IDB read,
     // so translated/fallback copy differences must not cause a false timeout.
     await page.locator('#app-shell main > div.glass-light.text-center.py-8.px-4').waitFor({ state: 'visible' })
+    if (round === 0) {
+      // AMap creates blob workers. Exercise the real response CSP without
+      // importing its SDK or permitting any third-party network request.
+      assert((await response.headerValue('content-security-policy'))?.includes("worker-src 'self' blob:"))
+      await page.evaluate(async () => {
+        const url = URL.createObjectURL(new Blob(['postMessage("fixture-worker-ready")'], { type: 'text/javascript' }))
+        let worker
+        let timeout
+        try {
+          await new Promise((resolve, reject) => {
+            timeout = setTimeout(() => reject(new Error('Local blob worker timed out')), 3000)
+            worker = new Worker(url)
+            worker.onmessage = event => event.data === 'fixture-worker-ready' ? resolve() : reject(new Error('Unexpected worker response'))
+            worker.onerror = () => reject(new Error('Local blob worker failed'))
+          })
+        } finally { clearTimeout(timeout); worker?.terminate(); URL.revokeObjectURL(url) }
+      })
+    }
     await page.waitForTimeout(250)
     assert.deepEqual(errors, [], 'Every page error fails the direct hydration regression')
     assert.deepEqual(unexpected, [], 'No external request or database-backed route is permitted')
     await page.close()
   }
-  console.log(JSON.stringify({ passed: true, rounds, pageErrors: errors.length, externalRequests: 0, directNextHTML: true, serviceWorkerFeatureAbsent: true, fixtureProxyUsed: false, blockedSSRPrefetches: prefetches.length }))
+  console.log(JSON.stringify({ passed: true, rounds, pageErrors: errors.length, externalRequests: 0, directNextHTML: true, serviceWorkerFeatureAbsent: true, localBlobWorkerCSP: true, fixtureProxyUsed: false, blockedSSRPrefetches: prefetches.length }))
 } catch (error) {
   console.error('Direct hydration failure', { round, errors, unexpected })
   throw error

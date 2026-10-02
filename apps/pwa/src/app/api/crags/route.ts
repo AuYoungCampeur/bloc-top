@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAllCrags, getCragsByCityId, createCrag, createCragPermission, getAllCities } from '@/lib/db'
-import { isCityValid } from '@/lib/city-utils'
+import { getAllCrags, getCragsByCityId, getAllCities } from '@/lib/db'
+import { createCragWithCreatorPermission, CragCreationConflictError, type NewCragInput } from '@bloctop/shared/crag-creation'
+import { isCityValid } from '@bloctop/shared/city-utils'
 import { requireAuth } from '@/lib/require-auth'
 import { canCreateCrag } from '@/lib/permissions'
 import { createModuleLogger } from '@/lib/logger'
 import { revalidateHomePage } from '@/lib/revalidate-helpers'
+import { validateCragInput } from '@bloctop/shared/crag-validation'
 
 const log = createModuleLogger('API:Crags')
-
-// Slug 格式: 小写字母、数字、连字符，不能以连字符开头或结尾
-const SLUG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/
 
 /**
  * GET /api/crags
@@ -59,41 +58,23 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const body = await request.json()
-    const { id, name, cityId, location, description, approach, coordinates } = body
-
-    if (!id || !name || !cityId || !location || !description || !approach) {
+    const body = await request.json().catch(() => null)
+    const { fields, errors } = validateCragInput(body, 'create')
+    if (Object.keys(errors).length) {
       return NextResponse.json(
-        { success: false, error: '缺少必填字段' },
+        { success: false, error: Object.values(errors)[0], fieldErrors: errors },
         { status: 400 }
       )
     }
-
-    if (!SLUG_PATTERN.test(id)) {
+    const cities = await getAllCities()
+    if (!cities.some(city => city.id === fields.cityId)) {
       return NextResponse.json(
-        { success: false, error: 'ID 格式无效，仅支持小写字母、数字和连字符' },
+        { success: false, error: '所属城市不存在', fieldErrors: { cityId: '所属城市不存在，请重新选择' } },
         { status: 400 }
       )
     }
-
-    const crag = await createCrag({
-      id,
-      name,
-      cityId,
-      location,
-      description,
-      approach,
-      createdBy: userId,
-      ...(coordinates ? { coordinates } : {}),
-    })
-
-    // 自动为创建者建立 manager 权限
-    await createCragPermission({
-      userId,
-      cragId: id,
-      role: 'manager',
-      assignedBy: userId,
-    })
+    const { id, name } = fields as { id: string; name: string }
+    const { crag, replayed } = await createCragWithCreatorPermission(fields as NewCragInput, userId)
 
     log.info('Crag created', {
       action: 'POST /api/crags',
@@ -102,10 +83,10 @@ export async function POST(request: NextRequest) {
 
     revalidateHomePage()
 
-    return NextResponse.json({ success: true, crag }, { status: 201 })
+    return NextResponse.json({ success: true, crag, replayed }, { status: replayed ? 200 : 201 })
   } catch (error) {
     const message = error instanceof Error ? error.message : '创建岩场失败'
-    const status = message.includes('已存在') ? 409 : 500
+    const status = error instanceof CragCreationConflictError ? 409 : 500
     log.error('Failed to create crag', error, { action: 'POST /api/crags' })
     return NextResponse.json({ success: false, error: message }, { status })
   }

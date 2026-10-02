@@ -9,19 +9,20 @@ import type { RouteTopoAnnotation } from '@bloctop/shared/types'
 interface AnnotationSlideProps {
   annotation: RouteTopoAnnotation
   cragId: string
+  mediaRevision?: string
   routeColor: string
   routeName: string
   onClick: () => void
 }
 
 export function AnnotationSlide({
-  annotation, cragId, routeColor, routeName, onClick,
+  annotation, cragId, mediaRevision, routeColor, routeName, onClick,
 }: AnnotationSlideProps) {
   const { src, isLoading, isError, onLoad, onError } = useFaceImage({
     cragId,
     area: annotation.area,
     faceId: annotation.faceId,
-  })
+  }, mediaRevision)
   const [aspectRatio, setAspectRatio] = useState<number | undefined>(undefined)
 
   return (
@@ -33,6 +34,7 @@ export function AnnotationSlide({
       {isLoading && <div className="absolute inset-0 skeleton-shimmer" />}
       {!isError && src && (
         <Image
+          key={src}
           src={src}
           alt={routeName}
           fill
@@ -48,7 +50,7 @@ export function AnnotationSlide({
           onError={onError}
         />
       )}
-      {!isLoading && annotation.topoLine.length >= 2 && (
+      {!isLoading && !isError && annotation.topoLine.length >= 2 && (
         <TopoLineOverlay
           points={annotation.topoLine}
           color={routeColor}

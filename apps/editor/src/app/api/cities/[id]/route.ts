@@ -40,7 +40,7 @@ export async function PATCH(
       metadata: { cityId: id, fields: Object.keys(updates) },
     })
 
-    revalidateHomePage()
+    await revalidateHomePage()
 
     return NextResponse.json({ success: true, city })
   } catch (error) {
@@ -84,7 +84,7 @@ export async function DELETE(
       action: 'DELETE /api/cities/:id',
     })
 
-    revalidateHomePage()
+    await revalidateHomePage()
 
     return NextResponse.json({ success: true })
   } catch (error) {
