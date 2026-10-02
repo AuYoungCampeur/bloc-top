@@ -5,6 +5,7 @@ import { Upload } from 'lucide-react'
 import { Input } from '@bloctop/ui/components/input'
 import { useToast } from '@bloctop/ui/components/toast'
 import { ImageUploadZone } from './image-upload-zone'
+import { publishingDelayMessage } from '@/lib/publishing-feedback'
 
 const FACE_ID_REGEX = /^[a-z][a-z0-9-]*[a-z0-9]$/
 
@@ -95,7 +96,7 @@ export function InlineFaceUpload({ cragId, area, onUploadSuccess }: InlineFaceUp
       const res = await fetch('/api/upload', { method: 'POST', body: formData })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || '上传失败')
-      showToast('岩面照片上传成功', 'success')
+      showToast(data.refreshPending ? publishingDelayMessage(data.warning) : '岩面照片上传成功', data.refreshPending ? 'info' : 'success', data.refreshPending ? 8000 : undefined)
       onUploadSuccess(faceId)
     } catch (err) {
       showToast(err instanceof Error ? err.message : '上传失败', 'error')

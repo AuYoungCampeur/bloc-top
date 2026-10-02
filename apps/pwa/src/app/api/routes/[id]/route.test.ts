@@ -9,6 +9,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { NextRequest, NextResponse } from 'next/server'
 import type { Route } from '@/types'
+import { TopoVersionError } from '@bloctop/shared/route-topo-version'
 
 vi.mock('next/cache', () => ({
   revalidatePath: vi.fn(),
@@ -61,7 +62,7 @@ function createGetRequest(): NextRequest {
 function createPatchRequest(body: Record<string, unknown>): NextRequest {
   return new NextRequest('http://localhost:3000/api/routes/42', {
     method: 'PATCH',
-    body: JSON.stringify(body),
+    body: JSON.stringify({ expectedTopoVersion: 0, ...body }),
     headers: { 'Content-Type': 'application/json' },
   })
 }
@@ -175,7 +176,7 @@ describe('PATCH /api/routes/[id]', () => {
 
     const res = await PATCH(createPatchRequest({ topoLine: null }), makeParams('42'))
     expect(res.status).toBe(200)
-    expect(mockUpdateRoute).toHaveBeenCalledWith(42, expect.objectContaining({ topoLine: undefined }))
+    expect(mockUpdateRoute).toHaveBeenCalledWith(42, expect.objectContaining({ topoLine: undefined }), { expectedTopoVersion: 0 })
   })
 
   it('projects the first annotation region independently of the route category', async () => {
@@ -189,7 +190,7 @@ describe('PATCH /api/routes/[id]', () => {
     mockUpdateRoute.mockResolvedValue({ ...SAMPLE_ROUTE, topoAnnotations: annotations, faceId: 'wall', faceArea: 'B', topoLine: annotations[0].topoLine })
     const response = await PATCH(createPatchRequest({ topoAnnotations: annotations, faceId: 'incorrect', topoLine: [] }), makeParams('42'))
     expect(response.status).toBe(200)
-    expect(mockUpdateRoute).toHaveBeenCalledWith(42, expect.objectContaining({ topoAnnotations: annotations, faceId: 'wall', faceArea: 'B', topoLine: annotations[0].topoLine }))
+    expect(mockUpdateRoute).toHaveBeenCalledWith(42, expect.objectContaining({ topoAnnotations: annotations, faceId: 'wall', faceArea: 'B', topoLine: annotations[0].topoLine }), { expectedTopoVersion: 0 })
     expect((await response.json()).route.area).toBe('A')
   })
 
@@ -200,7 +201,7 @@ describe('PATCH /api/routes/[id]', () => {
     mockUpdateRoute.mockResolvedValue({ ...SAMPLE_ROUTE, topoAnnotations: [] })
     const response = await PATCH(createPatchRequest({ topoAnnotations: [] }), makeParams('42'))
     expect(response.status).toBe(200)
-    expect(mockUpdateRoute).toHaveBeenCalledWith(42, expect.objectContaining({ topoAnnotations: [], faceId: undefined, faceArea: undefined, topoLine: undefined, topoTension: undefined }))
+    expect(mockUpdateRoute).toHaveBeenCalledWith(42, expect.objectContaining({ topoAnnotations: [], faceId: undefined, faceArea: undefined, topoLine: undefined, topoTension: undefined }), { expectedTopoVersion: 0 })
   })
 
   it.each([null, { faceId: 'wall', area: 'B', topoLine: [] }])('rejects malformed new annotations with 400: %j', async invalid => {
@@ -216,6 +217,38 @@ describe('PATCH /api/routes/[id]', () => {
     mockRequireAuth.mockResolvedValue({ userId: 'user1', role: 'user' })
     expect((await PATCH(createPatchRequest({ name: 'change' }), makeParams(id))).status).toBe(400)
     expect(mockGetRouteById).not.toHaveBeenCalled()
+  })
+
+  it.each([null, '0', -1, 0.5, 9007199254740992, [], { $ne: null }].map(value => [value]))('rejects invalid expectedTopoVersion with 400: %j', async version => {
+    mockRequireAuth.mockResolvedValue({ userId: 'u1', role: 'admin' })
+    mockGetRouteById.mockResolvedValue(SAMPLE_ROUTE)
+    mockCanEditCrag.mockResolvedValue(true)
+    const response = await PATCH(createPatchRequest({ name: 'New name', expectedTopoVersion: version }), makeParams('42'))
+    expect(response.status).toBe(400)
+    expect(mockUpdateRoute).not.toHaveBeenCalled()
+  })
+
+  it('passes the draft version and returns the authoritative server version', async () => {
+    mockRequireAuth.mockResolvedValue({ userId: 'u1', role: 'admin' })
+    mockGetRouteById.mockResolvedValue({ ...SAMPLE_ROUTE, topoVersion: 4 })
+    mockCanEditCrag.mockResolvedValue(true)
+    mockUpdateRoute.mockResolvedValue({ ...SAMPLE_ROUTE, topoVersion: 5 })
+    const response = await PATCH(createPatchRequest({ topoAnnotations: [], expectedTopoVersion: 4 }), makeParams('42'))
+    expect(response.status).toBe(200)
+    expect((await response.json()).route.topoVersion).toBe(5)
+    expect(mockUpdateRoute.mock.calls[0][2]).toEqual({ expectedTopoVersion: 4 })
+  })
+
+  it.each([409, 428] as const)('returns an actionable %s without concealing the current Topo version', async status => {
+    mockRequireAuth.mockResolvedValue({ userId: 'u1', role: 'admin' })
+    mockGetRouteById.mockResolvedValue(SAMPLE_ROUTE)
+    mockCanEditCrag.mockResolvedValue(true)
+    const current = { ...SAMPLE_ROUTE, topoVersion: 5, topoAnnotations: [] }
+    mockUpdateRoute.mockRejectedValueOnce(new TopoVersionError(status, current))
+    const response = await PATCH(createPatchRequest({ topoAnnotations: [], expectedTopoVersion: status === 428 ? undefined : 0 }), makeParams('42'))
+    expect(response.status).toBe(status)
+    expect(await response.json()).toMatchObject({ success: false,
+      code: status === 428 ? 'TOPO_VERSION_REQUIRED' : 'TOPO_VERSION_CONFLICT', topoVersion: 5, route: current })
   })
 
   it('should validate faceId format', async () => {

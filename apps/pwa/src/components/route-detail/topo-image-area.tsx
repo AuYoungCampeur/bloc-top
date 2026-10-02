@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useRef } from 'react'
+import { useCallback, useRef } from 'react'
 import Image from 'next/image'
 import { useTranslations } from 'next-intl'
 import { ImageIcon, X, Eye, EyeOff } from 'lucide-react'
@@ -14,6 +14,7 @@ import type { Route } from '@/types'
 
 interface TopoImageAreaProps {
   route: Route
+  mediaRevision?: string
   routeColor: string
   /** Face image URL from useFaceImage hook */
   topoImageUrl: string | null
@@ -47,6 +48,7 @@ interface TopoImageAreaProps {
 
 export function TopoImageArea({
   route,
+  mediaRevision,
   routeColor,
   topoImageUrl,
   imageLoading,
@@ -111,9 +113,10 @@ export function TopoImageArea({
           >
             {topoAnnotations.map((annotation, index) => (
               <AnnotationSlide
-                key={`${annotation.faceId}-${index}`}
+                key={`${annotation.area}/${annotation.faceId}-${index}`}
                 annotation={annotation}
                 cragId={route.cragId}
+                mediaRevision={mediaRevision}
                 routeColor={routeColor}
                 routeName={route.name}
                 onClick={onImageViewerOpen}
@@ -167,6 +170,7 @@ export function TopoImageArea({
             <div className="absolute inset-0 skeleton-shimmer" />
           )}
           <Image
+            key={topoImageUrl}
             src={topoImageUrl!}
             alt={route.name}
             fill

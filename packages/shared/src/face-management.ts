@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { Db, Document, Filter } from 'mongodb'
 import type { Route } from './types'
 import { getFaceIdentityKey, transformRouteFaceReferences, type FaceIdentity, type FaceReferenceOperation } from './face-references'
+import { getRouteTopoVersion, hasRouteTopoChanges } from './route-topo-version'
 
 export interface StoredFace { etag: string; contentType?: string }
 export interface FaceObjectStore {
@@ -49,7 +50,7 @@ const TOPO_FIELDS = ['faceId', 'faceArea', 'topoLine', 'topoTension', 'topoAnnot
 const asRoute = (doc: Document): Route => {
   const rest = { ...doc }
   delete rest._id; delete rest.createdAt; delete rest.updatedAt
-  return { ...rest, id: doc._id } as Route
+  return { ...rest, id: doc._id, topoVersion: getRouteTopoVersion(rest as Route) } as Route
 }
 
 /** Compare only Topo fields; unrelated concurrent Beta/metadata writes survive. */
@@ -67,8 +68,10 @@ async function transformReferences(db: Db, face: FaceIdentity, operation: FaceRe
       for (let attempt = 0; attempt < 4; attempt++) {
         if (!current) { completed = true; break }
         const updates = transformRouteFaceReferences(asRoute(current), face, operation)
-        if (!Object.keys(updates).length) { completed = true; break }
+        if (!Object.keys(updates).length || !hasRouteTopoChanges(asRoute(current), updates)) { completed = true; break }
+        if (getRouteTopoVersion(asRoute(current)) >= Number.MAX_SAFE_INTEGER) throw new Error('Topo version exhausted')
         const expected: Document = { _id: current._id, cragId: face.cragId, area: current.area }
+        expected.topoVersion = Object.hasOwn(current, 'topoVersion') ? current.topoVersion : { $exists: false }
         for (const field of TOPO_FIELDS) expected[field] = Object.hasOwn(current, field) ? current[field] : { $exists: false }
         const set: Document = { updatedAt: new Date() }
         const unset: Document = {}
@@ -77,7 +80,7 @@ async function transformReferences(db: Db, face: FaceIdentity, operation: FaceRe
           else set[key] = value
         }
         const updated = await collection.findOneAndUpdate(expected as Filter<Document>, {
-          $set: set, ...(Object.keys(unset).length ? { $unset: unset } : {}),
+          $set: set, ...(Object.keys(unset).length ? { $unset: unset } : {}), $inc: { topoVersion: 1 },
         }, { returnDocument: 'after' })
         if (updated) { changed.push(asRoute(updated)); completed = true; break }
         current = await collection.findOne({ _id: original._id, cragId: face.cragId })

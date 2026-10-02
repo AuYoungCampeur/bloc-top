@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/require-auth'
-import { canCreateCrag } from '@bloctop/shared/permissions'
+import { canCreateCrag, getEditableCragIds } from '@bloctop/shared/permissions'
 import { getAllCrags, getCragPermissionsByUserId } from '@bloctop/shared/db'
 
 /**
@@ -16,9 +16,10 @@ export async function GET(request: NextRequest) {
   const isAdmin = role === 'admin'
 
   // admin 也查 permission 表，以显示岩场级具体角色
-  const [allCrags, permissions] = await Promise.all([
+  const [allCrags, permissions, editableIds] = await Promise.all([
     getAllCrags(),
     getCragPermissionsByUserId(userId),
+    getEditableCragIds(userId, role),
   ])
 
   // 构建 cragId → permission role 映射
@@ -28,8 +29,8 @@ export async function GET(request: NextRequest) {
     // admin 看到所有岩场，优先显示岩场级角色，无记录则 fallback 为 'admin'
     ? allCrags.map(c => ({ ...c, permissionRole: permMap.get(c.id) ?? 'admin' as const }))
     : allCrags
-        .filter(c => permMap.has(c.id))
-        .map(c => ({ ...c, permissionRole: permMap.get(c.id)! }))
+        .filter(c => editableIds.includes(c.id))
+        .map(c => ({ ...c, permissionRole: permMap.get(c.id) ?? 'manager' as const }))
 
   return NextResponse.json({
     crags,

@@ -79,8 +79,18 @@ PM/Team Lead 负责优先级、数据边界、架构评审与集成验收；后�
 | 2026-10-02 内容批次本地验收 | 隔离、无 env 工作区 Node 22 下 lint、类型、1,536 项 Vitest（PWA 800/shared 513/Editor 223）、12 项 Chromium 组件测试与强制双应用构建通过；Vitest/构建未复用 Turbo 缓存，lint 保留 PWA 6/Editor 4 项既有警告。刚构建的实际 PWA/SW 在新浏览器上下文以本地原生 IDB/Cache 夹具通过中英法断网冷启动、旧图/单图/多图详情及刷新，0 pageErrors；该 smoke 不调用生产服务，也不证明真实下载接口、跨标签页或 Safari 行为。发布前追加 PWA 授权输入与数据服务防御，拒绝对象/数组/空值和 Mongo 操作符，零授权读写回归通过；完整检查和刚构建的 smoke 再次通过。此条仅为本地验收，远端/发布另记 |
 | 工作区既有开发 | 主工作区 `.serena/project.yml`、未跟踪的新建岩场页面及权限面板测试保留。隔离 worktree 内的副本经评审和业务回归后才参与集成；原文件未修改 |
 
-## 下一批未通过的边界
+## 可靠发布批次：当前源码与验收边界
 
-内容批次不代表达到完整成熟度：真实 Mongo 事务/并发与 R2 条件写入尚未验收；Topo 引用服务自身条件更新不阻止迟到的旧线路 PATCH；图片 HEAD→Delete 和跨服务崩溃恢复仍未解决。PWA 保留的创建岩场与授权 API 尚未接入 Editor 的全部事务/验证政策。离线两个存储及跨标签页操作不构成事务，Safari/存储回收仍需验收。`mediaRevision` 用于离线版本，并未让其他客户端在线图片自动失效；完整账号、通知恢复及发布到当前页面的刷新链路仍需迭代。
+当前 `codex/reliable-publishing` 实现并验收了本地 Mongo 12 项事务/并发用例：回滚、重复创建、稳定授权主键、计数器首次并发初始化、不复用删除 ID、旧 Topo 保存冲突以及 Beta 并发保留。两端 Topo PATCH 使用版本条件；真实认证库测试关闭新旧 session Cookie 缓存的过期授权，两端创建/授权入口政策统一。Editor 跨端通知等待最多 3 秒，主要保存入口以 refreshPending 提示已保存但发布可能延迟。上述是工作区证据，尚未发布；完整集成检查另记。两端 Beta 账号/session/线路/抽屉迟到保护完成，PWA 858 项及 Editor 285 项完整 Vitest 通过，目标 lint 通过；真实浏览器提交验收尚待新构建。
+
+离线真实浏览器夹具使用实际下载按钮/provider、原生 IDB/Cache 和跨 origin 本地 HTTP 图片，已经验证失败、重试、更新、取消及 Web Locks/BroadcastChannel 协作。扩展复测捕获偶发 React #418 页面水合错误，严格测试正确失败，内容 PR #293 暂缓合并；此前通过的基本冷启动和 CI 不消除此阻断。字体构建网络依赖已改为有许可的本地字体，最新远端双 Node 检查及 Preview 成功仍不代表生产发布。
+
+产品尚未达到完整成熟度：真实 R2 条件写入、新线路晚加入岩面引用、图片 HEAD→Delete 和跨服务崩溃恢复仍未解决。离线两个存储不构成事务，Safari、缺少 Web Locks 的跨标签页及存储回收仍需验收。`mediaRevision` 用于离线版本，未让其他客户端在线图片自动失效；真实邮件/Passkey、通知持久恢复及所有已打开页面的刷新链路仍需迭代。
 
 每次完成迭代后补充实际命令、行为证据和剩余工作；完成计划不能代替产品验收。
+
+## 安全升级：独立验收中
+
+依赖 audit 与官方公告核实 Next 16.1.2、Better Auth 1.4.18 的已修复漏洞范围；PWA 的 Magic Link 与开放密码注册满足 GHSA-qq9h-g4jm-xgf3 的条件。项目没有启用 social/Generic OAuth，因此不声称满足 GHSA-965c-763c-88jm 的 OAuth 前提。独立 `codex/framework-security` 从已发布 main 验证 Next/ESLint 16.3.8、Better Auth/Passkey 1.7.7、AWS S3 SDK 3.1145.0 及 Sharp 0.35.5，并统一 shared/ui 的 Next peer，避免进程加载旧框架副本。升级验收和生产部署尚未完成；旧 pending Magic Link 需重新申请，无 user/account schema migration，须协调共享 verification 存储的节点切换。
+
+源码公告：[Magic Link/密码预注册](https://github.com/better-auth/better-auth/security/advisories/GHSA-qq9h-g4jm-xgf3)、[Better Auth 1.7.7](https://github.com/better-auth/better-auth/releases/tag/v1.7.7)、[Next 16.3.8](https://github.com/vercel/next.js/releases/tag/v16.3.8)。audit 的包版本命中与生产可利用条件需要分别核实，不能把包含开发工具的审计总数直接当作线上漏洞数量。

@@ -81,9 +81,9 @@ export async function POST(request: NextRequest) {
       metadata: { cragId: id, name, createdBy: userId },
     })
 
-    revalidateHomePage()
+    const publication = await revalidateHomePage()
 
-    return NextResponse.json({ success: true, crag, replayed }, { status: replayed ? 200 : 201 })
+    return NextResponse.json({ success: true, crag, replayed, ...(publication?.ok === false ? { refreshPending: true } : {}) }, { status: replayed ? 200 : 201 })
   } catch (error) {
     const message = error instanceof Error ? error.message : '创建岩场失败'
     const status = error instanceof CragCreationConflictError ? 409 : 500

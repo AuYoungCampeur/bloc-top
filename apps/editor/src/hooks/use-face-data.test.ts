@@ -3,6 +3,7 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Route } from '@bloctop/shared/types'
 import { useFaceData } from './use-face-data'
+import { PUBLISHING_DELAY_MESSAGE } from '@/lib/publishing-feedback'
 
 const fixtures = vi.hoisted(() => ({ toast: vi.fn(), preload: vi.fn(), invalidate: vi.fn() }))
 vi.mock('@bloctop/ui/components/toast', () => ({ useToast: () => ({ showToast: fixtures.toast }) }))
@@ -37,6 +38,41 @@ beforeEach(() => {
 })
 
 describe('真实 useFaceData 管理会话', () => {
+  it.each(['rename', 'delete'] as const)('%s已保存但用户端通知待完成仍采用权威记录与版本，只警告不重复写', async operation => {
+    const { result } = setup()
+    await waitFor(() => expect(result.current.faceGroups).toHaveLength(2))
+    const saved = operation === 'rename'
+      ? { ...a, faceId: 'new-face', topoVersion: 4, topoAnnotations: [{ area: '北区', faceId: 'new-face', topoLine: points }] }
+      : { ...a, faceId: 'same', faceArea: '南区', topoVersion: 4, topoAnnotations: [a.topoAnnotations![1]] }
+    vi.mocked(fetch).mockResolvedValueOnce(response({ success: true, routes: [saved], refreshPending: true }))
+    await act(async () => {
+      if (operation === 'rename') expect(await result.current.handleRenameFace(result.current.faceGroups[0], 'new-face')).toBe('new-face')
+      else expect(await result.current.handleDeleteFace(result.current.faceGroups[0])).toBe(true)
+    })
+    expect(result.current.routes[0].topoVersion).toBe(4)
+    expect(result.current.routes[0].topoAnnotations).toEqual(saved.topoAnnotations)
+    expect(fixtures.toast).toHaveBeenCalledWith(PUBLISHING_DELAY_MESSAGE, 'info', 8000)
+    expect(vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === (operation === 'rename' ? 'PATCH' : 'DELETE'))).toHaveLength(1)
+  })
+
+  it('迟到较低版本岩面响应不覆盖当前路线Topo或Beta，历史缺省0仍可采用', async () => {
+    const { result } = setup([{ ...a, topoVersion: 2 }, b])
+    await waitFor(() => expect(result.current.faceGroups).toHaveLength(2))
+    let finish!: (response: Response) => void
+    vi.mocked(fetch).mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    let pending!: Promise<string | false>
+    act(() => { pending = result.current.handleRenameFace(result.current.faceGroups[0], 'old-rename') })
+    const newer = { ...a, topoVersion: 4, faceId: 'new-face', topoAnnotations: [{ area: '北区', faceId: 'new-face', topoLine: points }],
+      betaLinks: [{ id: 'latest-beta', url: 'https://xhslink.cn/o/test' }] as Route['betaLinks'] }
+    act(() => result.current.setRoutes(current => current.map(route => route.id === 1 ? newer : route)))
+    await act(async () => { finish(response({ success: true, routes: [{ ...a, topoVersion: 3, faceId: 'old-rename' }] })); await pending })
+    expect(result.current.routes[0]).toEqual(newer)
+    const legacySaved = { ...b, faceId: 'legacy-new' }
+    await act(async () => { await result.current.handleUploadSuccess({ cragId: 'a', url: 'saved', area: '南区', faceId: 'legacy-new', isCreating: false, newArea: '', result: { routes: [legacySaved] } }) })
+    expect(result.current.routes[1].topoVersion).toBe(0)
+    expect(result.current.routes[1].faceId).toBe('legacy-new')
+  })
+
   it('同 ID 按岩场/区域分组，多图数组权威，旧照片区域独立于线路业务区域', async () => {
     const { result, rerender } = setup()
     await waitFor(() => expect(result.current.faceGroups).toHaveLength(2))

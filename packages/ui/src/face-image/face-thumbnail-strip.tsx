@@ -21,18 +21,17 @@ interface FaceThumbnailStripProps {
   onFaceSelect: (faceId: string | null) => void
   selectedArea?: string | null
   onAreaChange?: (area: string | null) => void
+  mediaRevision?: string
 }
 
 /**
  * 岩面缩略图 - 独立管理加载/错误状态
  *
- * 设计决策: src 变化时不重置 status。
- * 浏览器原生 <img> 在 src 变化时保持显示旧图直到新图加载完成,
- * 对缩略图来说这是更好的 UX (避免多个缩略图同时闪烁 skeleton)。
- * 新图加载成功 → onLoad → 'loaded'; 失败 → onError → 'error'。
+ * A new revision gets a new element, so a failed replacement cannot retain old pixels.
  */
 const FaceThumbnail = memo(function FaceThumbnail({ src, alt }: { src: string; alt: string }) {
-  const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading')
+  const [loaded, setLoaded] = useState<{ src: string; status: 'loaded' | 'error' } | null>(null)
+  const status = loaded?.src === src ? loaded.status : 'loading'
 
   return (
     <>
@@ -49,11 +48,12 @@ const FaceThumbnail = memo(function FaceThumbnail({ src, alt }: { src: string; a
       )}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
+        key={src}
         src={src}
         alt={alt}
         className={`w-full h-full object-cover ${status === 'loaded' ? '' : 'hidden'}`}
-        onLoad={() => setStatus('loaded')}
-        onError={() => setStatus('error')}
+        onLoad={() => setLoaded({ src, status: 'loaded' })}
+        onError={() => setLoaded({ src, status: 'error' })}
       />
     </>
   )
@@ -70,6 +70,7 @@ export const FaceThumbnailStrip = memo(function FaceThumbnailStrip({
   onFaceSelect,
   selectedArea: controlledArea,
   onAreaChange,
+  mediaRevision,
 }: FaceThumbnailStripProps) {
   const tCommon = useTranslations('Common')
   const cache = useFaceImageCache()
@@ -135,10 +136,10 @@ export const FaceThumbnailStrip = memo(function FaceThumbnailStrip({
       key: getFaceIdentityKey({ cragId: selectedCrag, area, faceId }),
       label: faceId,
       area,
-      image: cache.getImageUrl({ cragId: selectedCrag, area, faceId }),
+      image: cache.getImageUrl({ cragId: selectedCrag, area, faceId }, mediaRevision),
     }))
     // eslint-disable-next-line react-hooks/exhaustive-deps -- cacheVersion is an intentional trigger dep for cache invalidation
-  }, [faces, selectedCrag, cache, cacheVersion])
+  }, [faces, selectedCrag, cache, cacheVersion, mediaRevision])
 
   // 按选中 area 过滤
   const faceGroups = useMemo(() => {

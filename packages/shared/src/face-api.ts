@@ -11,7 +11,7 @@ interface Dependencies {
   canEditCrag(userId: string, cragId: string, role: UserRole): Promise<boolean>
   getDatabase(): Promise<Db>
   getObjectStore(): FaceObjectStore
-  revalidateCragPages(cragId: string): void | Promise<void>
+  revalidateCragPages(cragId: string): void | Promise<void | { ok: boolean }>
 }
 const log = createModuleLogger('API:Faces')
 const noStore = { 'Cache-Control': 'no-store, max-age=0' }
@@ -34,8 +34,13 @@ export function createFaceHandlers(deps: Dependencies) {
     if (!crag) throw new FaceOperationError(404, 'CRAG_NOT_FOUND', '岩场不存在')
   }
   async function notify(cragId: string) {
-    try { await deps.revalidateCragPages(cragId) }
-    catch (error) { log.error('Face refresh failed', error, { metadata: { cragId } }) }
+    try {
+      const result = await deps.revalidateCragPages(cragId)
+      return !result || result.ok !== false
+    } catch (error) {
+      log.error('Face refresh failed', error, { metadata: { cragId } })
+      return false
+    }
   }
   function failure(error: unknown) {
     if (error instanceof FaceOperationError) return json({ success: false, error: error.message, code: error.code, ...error.details }, error.status)
@@ -66,8 +71,8 @@ export function createFaceHandlers(deps: Dependencies) {
         if (!/^[\u4e00-\u9fffa-z0-9-]+$/.test(newFaceId) || newFaceId === face.faceId) throw new FaceOperationError(400, 'INVALID_FACE_NAME', '新名称无效或与原名称相同')
         await authorize(face.cragId, auth)
         const result = await management.rename(face, newFaceId)
-        await notify(face.cragId)
-        return json(result)
+        const refreshed = await notify(face.cragId)
+        return json({ ...result, ...(!refreshed ? { refreshPending: true } : {}) })
       } catch (error) {
         if (cragId && error instanceof FaceOperationError && error.details.partial) await notify(cragId)
         return failure(error)
@@ -82,8 +87,8 @@ export function createFaceHandlers(deps: Dependencies) {
         cragId = face.cragId
         await authorize(face.cragId, auth)
         const result = await management.remove(face)
-        await notify(face.cragId)
-        return json(result)
+        const refreshed = await notify(face.cragId)
+        return json({ ...result, ...(!refreshed ? { refreshPending: true } : {}) })
       } catch (error) {
         if (cragId && error instanceof FaceOperationError && error.details.partial) await notify(cragId)
         return failure(error)
@@ -114,9 +119,9 @@ export function createFaceHandlers(deps: Dependencies) {
         if (expectedEtag !== null && typeof expectedEtag !== 'string') throw new FaceOperationError(400, 'INVALID_ETAG', '图片版本格式无效')
         const result = await management.upload({ key, cragId, face, body: new Uint8Array(await file.arrayBuffer()),
           contentType: file.type, clearTopo: form.get('clearTopoLines') === 'true', overwrite: form.get('overwrite') === 'true', expectedEtag: expectedEtag ?? undefined })
-        await notify(cragId)
+        const refreshed = await notify(cragId)
         const encodedKey = key.split('/').map(encodeURIComponent).join('/')
-        return json({ ...result, url: `https://img.bouldering.top/${encodedKey}?t=${Date.now()}`, message: '图片上传成功' })
+        return json({ ...result, ...(!refreshed ? { refreshPending: true } : {}), url: `https://img.bouldering.top/${encodedKey}?t=${Date.now()}`, message: '图片上传成功' })
       } catch (error) {
         if (cragId && error instanceof FaceOperationError && error.details.partial) await notify(cragId)
         return failure(error)

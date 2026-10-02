@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
       metadata: { cityId: id, name },
     })
 
-    revalidateHomePage()
+    await revalidateHomePage()
 
     return NextResponse.json({ success: true, city }, { status: 201 })
   } catch (error) {

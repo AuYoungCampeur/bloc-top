@@ -5,6 +5,8 @@ import { useRouteEditor } from './use-route-editor'
 import { useBetaManagement } from './use-beta-management'
 import { useDirtyGuard } from './use-dirty-guard'
 import type { Route } from '@bloctop/shared/types'
+import { applyFaceRoutes } from '@/lib/face-state'
+import { PUBLISHING_DELAY_MESSAGE } from '@/lib/publishing-feedback'
 
 // Mock external dependencies
 vi.mock('@bloctop/shared/topo-utils', () => ({
@@ -17,8 +19,9 @@ vi.mock('@bloctop/shared/tokens', () => ({
 vi.mock('@bloctop/shared/topo-constants', () => ({
   computeViewBox: vi.fn().mockReturnValue({ width: 1000, height: 750 }),
 }))
+const toast = vi.hoisted(() => vi.fn())
 vi.mock('@bloctop/ui/components/toast', () => ({
-  useToast: () => ({ showToast: vi.fn() }),
+  useToast: () => ({ showToast: toast }),
 }))
 vi.mock('@/lib/route-validation', () => ({
   validateRouteForm: vi.fn().mockReturnValue({}),
@@ -320,6 +323,7 @@ describe('useRouteEditor', () => {
       // 新字段
       expect(body.topoAnnotations).toBeDefined()
       expect(Array.isArray(body.topoAnnotations)).toBe(true)
+      expect(body.expectedTopoVersion).toBe(0)
       // compat sync：旧字段与第一条标注一致
       if (result.current.annotations.length > 0) {
         expect(body.faceId).toBe(result.current.annotations[0].faceId)
@@ -350,6 +354,117 @@ describe('useRouteEditor', () => {
   })
 
   describe('工作台持久化记录与编辑草稿', () => {
+    it('发布通知待完成仍采用权威保存，清除脏状态，不重复写并给出警告', async () => {
+      const { result } = setupWorkbench()
+      act(() => result.current.editor.setEditedRoute(prev => ({ ...prev, name: '已保存名称' })))
+      vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ route: { ...mockRoute, name: '已保存名称', topoVersion: 1 }, refreshPending: true }) } as Response)
+      await act(async () => { expect(await result.current.editor.handleSave()).toBe(true) })
+      expect(result.current.selectedRoute?.name).toBe('已保存名称')
+      expect(result.current.editor.hasUnsavedChanges()).toBe(false)
+      expect(result.current.editor.saveError).toBeNull()
+      expect(toast).toHaveBeenCalledWith(PUBLISHING_DELAY_MESSAGE, 'info', 8000)
+      expect(fetch).toHaveBeenCalledTimes(1)
+    })
+
+    it('岩面权威改名携带Topo版本更新列表，下一次编辑使用新基线而迟到旧响应不回滚', async () => {
+      const { result } = setupWorkbench()
+      const renamed: Route = { ...mockRoute, faceId: 'renamed', topoVersion: 3 }
+      act(() => result.current.setRoutes(prev => applyFaceRoutes(prev, [renamed])))
+      expect(result.current.selectedRoute?.topoVersion).toBe(3)
+      expect(result.current.editor.selectedFaceId).toBe('renamed')
+      act(() => result.current.setRoutes(prev => applyFaceRoutes(prev, [{ ...mockRoute, topoVersion: 2 }])))
+      expect(result.current.editor.selectedFaceId).toBe('renamed')
+      act(() => result.current.editor.setEditedRoute(prev => ({ ...prev, name: '改名后线路编辑' })))
+      vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ route: { ...renamed, name: '改名后线路编辑' } }) } as Response)
+      await act(async () => { expect(await result.current.editor.handleSave()).toBe(true) })
+      expect(JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string).expectedTopoVersion).toBe(3)
+      expect(result.current.editor.hasUnsavedChanges()).toBe(false)
+    })
+
+    it('外部Topo升版保留旧草稿和原始expected版本，不默默允许覆盖新Topo', async () => {
+      const { result } = setupWorkbench({ ...mockRoute, topoVersion: 2 })
+      const points = [{ x: 0.6, y: 0.7 }, { x: 0.8, y: 0.9 }]
+      act(() => {
+        result.current.editor.setEditedRoute(prev => ({ ...prev, name: '我的草稿' }))
+        result.current.editor.setTopoLine(points)
+      })
+      act(() => result.current.setRoutes(prev => prev.map(route => route.id === mockRoute.id
+        ? { ...route, topoVersion: 3, topoLine: [{ x: 0.1, y: 0.9 }, { x: 0.2, y: 0.8 }] }
+        : route)))
+      expect(result.current.editor.editedRoute.name).toBe('我的草稿')
+      expect(result.current.editor.topoLine).toEqual(points)
+      vi.mocked(fetch).mockResolvedValueOnce({ ok: false, status: 409, json: async () => ({ error: 'Topo已更新', topoVersion: 3 }) } as Response)
+      await act(async () => { expect(await result.current.editor.handleSave()).toBe(false) })
+      expect(JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string).expectedTopoVersion).toBe(2)
+      expect(result.current.editor.editedRoute.name).toBe('我的草稿')
+      expect(result.current.editor.topoLine).toEqual(points)
+      expect(result.current.editor.hasUnsavedChanges()).toBe(true)
+    })
+
+    it('保存携带草稿起始Topo版本，历史缺省为0', async () => {
+      const { result } = setupWorkbench({ ...mockRoute, topoVersion: 7 })
+      vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ route: { ...mockRoute, topoVersion: 8 } }) } as Response)
+      await act(async () => { await result.current.editor.handleSave() })
+      expect(JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string).expectedTopoVersion).toBe(7)
+      await act(async () => { await result.current.editor.handleSave() })
+      expect(JSON.parse(vi.mocked(fetch).mock.calls[1][1]!.body as string).expectedTopoVersion).toBe(8)
+    })
+
+    it.each([409, 428])('版本冲突%s保留表单和Topo，不采用响应版本或自动重试', async status => {
+      const { result } = setupWorkbench({ ...mockRoute, topoVersion: 2 })
+      const points = [{ x: 0.6, y: 0.7 }, { x: 0.8, y: 0.9 }]
+      act(() => {
+        result.current.editor.setEditedRoute(prev => ({ ...prev, name: '我的未保存名称' }))
+        result.current.editor.setTopoLine(points)
+      })
+      vi.mocked(fetch).mockResolvedValueOnce({ ok: false, status, json: async () => ({ error: 'Topo已更新', route: { ...mockRoute, topoVersion: 9 }, topoVersion: 9 }) } as Response)
+      await act(async () => { expect(await result.current.editor.handleSave()).toBe(false) })
+      expect(result.current.editor.editedRoute.name).toBe('我的未保存名称')
+      expect(result.current.editor.topoLine).toEqual(points)
+      expect(result.current.selectedRoute?.topoVersion).toBe(2)
+      expect(result.current.editor.hasUnsavedChanges()).toBe(true)
+      expect(result.current.editor.saveError).toContain('草稿已保留')
+      expect(fetch).toHaveBeenCalledTimes(1)
+    })
+
+    it('同线路收到更高Topo版本后，迟到低版本保存不覆盖新记录和新草稿', async () => {
+      const { result } = setupWorkbench({ ...mockRoute, topoVersion: 1 })
+      let resolveSave!: (response: Response) => void
+      vi.mocked(fetch).mockImplementationOnce(() => new Promise(resolve => { resolveSave = resolve }))
+      let saving!: Promise<boolean>
+      act(() => { saving = result.current.editor.handleSave() })
+      const newPoints = [{ x: 0.8, y: 0.8 }, { x: 0.9, y: 0.9 }]
+      act(() => result.current.setRoutes(prev => prev.map(route => route.id === mockRoute.id ? { ...route, topoVersion: 3, topoLine: newPoints } : route)))
+      act(() => result.current.editor.setEditedRoute(prev => ({ ...prev, name: '更高版本上的新草稿' })))
+      await act(async () => {
+        resolveSave({ ok: true, json: async () => ({ route: { ...mockRoute, topoVersion: 2 } }) } as Response)
+        expect(await saving).toBe(false)
+      })
+      expect(result.current.selectedRoute?.topoVersion).toBe(3)
+      expect(result.current.selectedRoute?.topoLine).toEqual(newPoints)
+      expect(result.current.editor.topoLine).toEqual(newPoints)
+      expect(result.current.editor.editedRoute.name).toBe('更高版本上的新草稿')
+      expect(result.current.editor.hasUnsavedChanges()).toBe(true)
+    })
+
+    it('切换后旧线路已升版，迟到低版本响应不能回滚列表中旧线路Topo', async () => {
+      const { result } = setupWorkbench({ ...mockRoute, topoVersion: 1 })
+      let resolveSave!: (response: Response) => void
+      vi.mocked(fetch).mockImplementationOnce(() => new Promise(resolve => { resolveSave = resolve }))
+      let saving!: Promise<boolean>
+      act(() => { saving = result.current.editor.handleSave() })
+      act(() => result.current.guard.guardAction(secondRoute.id))
+      act(() => result.current.setRoutes(prev => prev.map(route => route.id === mockRoute.id ? { ...route, topoVersion: 3, name: '其他操作后的记录' } : route)))
+      act(() => result.current.editor.setEditedRoute(prev => ({ ...prev, description: 'B草稿' })))
+      await act(async () => {
+        resolveSave({ ok: true, json: async () => ({ route: { ...mockRoute, topoVersion: 2 } }) } as Response)
+        await saving
+      })
+      expect(result.current.routes.find(route => route.id === mockRoute.id)?.topoVersion).toBe(3)
+      expect(result.current.routes.find(route => route.id === mockRoute.id)?.name).toBe('其他操作后的记录')
+      expect(result.current.editor.editedRoute.description).toBe('B草稿')
+    })
+
     it('保存采用服务端返回、更新选中线路并清除未保存状态', async () => {
       const { result } = setupWorkbench()
       const updatedPoints = [{ x: 0.2, y: 0.3 }, { x: 0.4, y: 0.5 }]

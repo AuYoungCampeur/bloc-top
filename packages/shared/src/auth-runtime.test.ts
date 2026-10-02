@@ -13,6 +13,11 @@ describe('shared authentication runtime', () => {
     expect(cookie.attributes.domain).toBeUndefined()
     expect(cookie.attributes.secure).toBe(false)
     expect(pwa.passkey.rpID).toBe('localhost')
+    expect(pwa.session).toEqual({
+      expiresIn: 60 * 60 * 24 * 30,
+      updateAge: 60 * 60 * 24,
+      cookieCache: { enabled: false },
+    })
   })
 
   it('preserves existing secure production cookies without trusting localhost', () => {

@@ -1,21 +1,46 @@
-/** Same-tab lifecycle ordering. Cross-tab coordination remains a separate browser-storage boundary. */
+/** Web Locks coordinate cooperating tabs; older browsers retain the same-tab queue. */
 const operations = new Map<string, Promise<unknown>>()
 const downloads = new Map<string, Set<AbortController>>()
+let channel: BroadcastChannel | null = null
+
+function cancelDownloads(cragId: string) {
+  for (const pending of downloads.get(cragId) ?? []) pending.abort(new DOMException('Cancelled by deletion', 'AbortError'))
+}
+
+function operationChannel() {
+  if (!channel && typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+    try {
+      channel = new BroadcastChannel('bloctop-offline-operations')
+      channel.onmessage = event => {
+        if (event.data?.type === 'delete' && typeof event.data.cragId === 'string') cancelDownloads(event.data.cragId)
+      }
+    } catch { /* Storage policies may forbid notifications; the queue/lock still works. */ }
+  }
+  return channel
+}
 
 export function throwIfOfflineAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw signal.reason ?? new DOMException('Cancelled', 'AbortError')
 }
 
-export async function withOfflineCragOperation<T>(cragId: string, kind: 'download' | 'delete', work: (signal: AbortSignal) => Promise<T>): Promise<T> {
+export async function withOfflineCragOperation<T>(cragId: string, kind: 'download' | 'delete' | 'cleanup', work: (signal: AbortSignal) => Promise<T>): Promise<T> {
   const controller = new AbortController()
+  const notifications = operationChannel()
   if (kind === 'delete') {
-    for (const pending of downloads.get(cragId) ?? []) pending.abort(new DOMException('Cancelled by deletion', 'AbortError'))
-  } else {
+    cancelDownloads(cragId)
+    try { notifications?.postMessage({ type: 'delete', cragId }) } catch { /* Notifications are advisory, not the lock. */ }
+  } else if (kind === 'download') {
     const pending = downloads.get(cragId) ?? new Set<AbortController>()
     pending.add(controller); downloads.set(cragId, pending)
   }
   const previous = operations.get(cragId) ?? Promise.resolve()
-  const run = previous.catch(() => {}).then(() => { throwIfOfflineAborted(controller.signal); return work(controller.signal) })
+  const run = previous.catch(() => {}).then(async () => {
+    throwIfOfflineAborted(controller.signal)
+    if (typeof navigator !== 'undefined' && navigator.locks) {
+      return await navigator.locks.request(`bloctop-offline:${cragId}`, { mode: 'exclusive', signal: controller.signal }, () => work(controller.signal))
+    }
+    return await work(controller.signal)
+  })
   operations.set(cragId, run)
   try { return await run } finally {
     downloads.get(cragId)?.delete(controller)

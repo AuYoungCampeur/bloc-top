@@ -6,7 +6,7 @@ import { createModuleLogger } from '@bloctop/shared/logger'
 import { revalidateCragPages } from '@/lib/revalidate-pwa'
 import type { Route } from '@bloctop/shared/types'
 import { parseRouteTopoUpdates, TopoValidationError } from '@bloctop/shared/route-topo-validation'
-import { normalizeRouteTopoUpdates } from '@bloctop/shared/face-references'
+import { TopoVersionError } from '@bloctop/shared/route-topo-version'
 
 const log = createModuleLogger('API:Routes')
 
@@ -98,7 +98,11 @@ export async function PATCH(
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Invalid body')
       body = parsed as Record<string, unknown>
     } catch { return NextResponse.json({ success: false, error: '请求数据格式无效' }, { status: 400 }) }
-    const updates: Partial<Omit<Route, 'id'>> = {}
+    const expectedTopoVersion = body.expectedTopoVersion
+    if (Object.hasOwn(body, 'expectedTopoVersion') && (typeof expectedTopoVersion !== 'number' || !Number.isSafeInteger(expectedTopoVersion) || expectedTopoVersion < 0)) {
+      return NextResponse.json({ success: false, error: 'expectedTopoVersion 必须是非负安全整数' }, { status: 400 })
+    }
+    const updates: Partial<Omit<Route, 'id' | 'topoVersion'>> = {}
 
     // 验证并收集可更新的字段
     if (body.name !== undefined) {
@@ -140,8 +144,7 @@ export async function PATCH(
 
     // Server owns the array-to-legacy projection, including the image area.
     try {
-      Object.assign(updates, parseRouteTopoUpdates(body, existingRoute))
-      Object.assign(updates, normalizeRouteTopoUpdates(updates, existingRoute))
+      Object.assign(updates, parseRouteTopoUpdates(body))
     } catch (error) {
       if (error instanceof TopoValidationError) return NextResponse.json({ success: false, error: error.message }, { status: 400 })
       throw error
@@ -155,7 +158,7 @@ export async function PATCH(
       )
     }
 
-    const updatedRoute = await updateRoute(routeId, updates)
+    const updatedRoute = await updateRoute(routeId, updates, { expectedTopoVersion: expectedTopoVersion as number | undefined })
 
     if (!updatedRoute) {
       return NextResponse.json(
@@ -169,14 +172,19 @@ export async function PATCH(
       metadata: { routeId, fields: Object.keys(updates) },
     })
 
-    revalidateCragPages(existingRoute.cragId)
+    const publication = await revalidateCragPages(existingRoute.cragId)
 
     return NextResponse.json({
       success: true,
       route: updatedRoute,
       message: '更新成功',
+      ...(publication?.ok === false ? { refreshPending: true } : {}),
     })
   } catch (error) {
+    if (error instanceof TopoVersionError) {
+      return NextResponse.json({ success: false, code: error.code, error: error.message,
+        route: error.route, topoVersion: error.route.topoVersion }, { status: error.status })
+    }
     log.error('Failed to update route', error, {
       action: 'PATCH /api/routes/[id]',
       metadata: { routeId },
@@ -245,9 +253,9 @@ export async function DELETE(
       metadata: { routeId },
     })
 
-    revalidateCragPages(existingRoute.cragId)
+    const publication = await revalidateCragPages(existingRoute.cragId)
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true, ...(publication?.ok === false ? { refreshPending: true } : {}) })
   } catch (error) {
     log.error('Failed to delete route', error, {
       action: 'DELETE /api/routes/[id]',

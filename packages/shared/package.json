@@ -39,7 +39,9 @@
     "./route-search": "./src/route-search.ts",
     "./revalidate-helpers": "./src/revalidate-helpers.ts",
     "./cache-config": "./src/cache-config.ts",
-    "./*": "./src/*/index.ts"
+    "./*": "./src/*/index.ts",
+    "./crag-validation": "./src/crag-validation.ts",
+    "./route-topo-version": "./src/route-topo-version.ts"
   },
   "dependencies": {
     "better-auth": "^1.4.18",
@@ -55,7 +57,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "test:integration:mongo": "vitest run --config vitest.mongo-integration.config.ts"
   },
   "devDependencies": {
     "vitest": "^3.2.1"

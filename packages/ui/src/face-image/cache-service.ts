@@ -1,6 +1,7 @@
 import { getTopoImageUrl, getFaceTopoUrl } from '@bloctop/shared/constants'
 import type { FaceKey, ImageSource } from './types'
 import { getFaceIdentityKey, getPrimaryFaceIdentity } from '@bloctop/shared/face-references'
+import { withMediaRevision } from './media-revision'
 
 /**
  * 统一岩面图片缓存服务
@@ -46,14 +47,14 @@ export class FaceImageCacheService {
    * 正常情况: 返回 ?v={IMAGE_VERSION} 的 URL
    * 失效后: 返回 ?t={timestamp} 的 URL (绕过所有缓存层)
    */
-  getImageUrl(source: ImageSource): string {
+  getImageUrl(source: ImageSource, mediaRevision?: string): string {
     const key = FaceImageCacheService.getFaceKey(source)
     const version = key ? this.versions.get(key) : undefined
 
     if ('id' in source) {
-      return getTopoImageUrl(source, version)
+      return withMediaRevision(getTopoImageUrl(source, version), mediaRevision)
     }
-    return getFaceTopoUrl(source.cragId, source.area, source.faceId, version)
+    return withMediaRevision(getFaceTopoUrl(source.cragId, source.area, source.faceId, version), mediaRevision)
   }
 
   /**

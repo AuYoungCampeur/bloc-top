@@ -67,6 +67,7 @@ PWA 默认 3000，Editor 开发脚本固定 3001。后台首次访问会重定�
 | `pnpm test` / `pnpm test:run` | PWA、Editor、shared 的 Vitest；ui 没有独立 test script |
 | `pnpm --filter @bloctop/editor test:run` | 后台组件、hook、逻辑测试 |
 | `pnpm --filter @bloctop/shared test:run` | 权限、数据层及工具函数 |
+| `pnpm --filter @bloctop/shared test:integration:mongo` | 显式本地副本集中的事务/并发验收；不读取应用 env |
 | `pnpm test:ct` | PWA 的 Playwright 组件测试，非完整双端 E2E |
 | `pnpm build` | 两个应用的生产构建；PWA 使用 `next build --webpack` |
 
@@ -84,7 +85,7 @@ Git hooks 实际行为：
 
 pre-push 的成功和失败路径已在临时 Git 仓库验证：仅检查提交快照，保留并恢复 staged、unstaged、untracked 改动及原有 stash。
 
-CI 在 Node 22/24 下分别执行全部检查与构建；四个汇总检查沿用 main 保护规则要求的 `🔍 ESLint`、`📘 TypeScript`、`🧪 Unit Tests`、`🎭 Playwright` 名称，只有整个矩阵成功才通过。
+CI 在 Node 22/24 下分别执行全部检查与构建，以及固定镜像的本地 Mongo 副本集验收和严格下载/离线浏览 smoke；四个汇总检查沿用 main 保护规则要求的 `🔍 ESLint`、`📘 TypeScript`、`🧪 Unit Tests`、`🎭 Playwright` 名称，只有整个矩阵成功才通过。
 
 仓库 [verify skill](../.agents/skills/verify/SKILL.md) 已改为上述 pnpm 工作区验证入口；它不授予提交/发布权限，也不将组件测试当作真实服务验收。
 
@@ -99,7 +100,7 @@ pnpm --filter @bloctop/pwa exec next start -p 3000
 pnpm --filter @bloctop/editor exec next start -p 3001
 ```
 
-两个应用的 `start` 都只是 `next start`，并不会自动沿用 Editor dev 的 3001。PWA 开发模式禁用 SW，离线验收需生产构建预览。数据页在请求时读取 MongoDB；构建无需数据库、认证、邮件或 R2 凭据，但字体构建仍需要外网。运行这些页面和 API 时仍需真实环境配置。
+两个应用的 `start` 都只是 `next start`，并不会自动沿用 Editor dev 的 3001。PWA 开发模式禁用 SW，离线验收需生产构建预览。数据页在请求时读取 MongoDB；构建无需数据库、认证、邮件或 R2 凭据，字体使用仓库内的本地文件及许可，构建不请求 Google Fonts。运行这些页面和 API 时仍需真实环境配置。
 
 `.github/workflows/ci.yml` 在 PR 和 main/codex 分支提交时，以 Node 22/24 执行 frozen install、lint、类型、隔离 Vitest、Chromium 组件测试和无服务凭据双应用构建。远端执行结果应独立核对；组件测试不覆盖完整用户业务流程。
 
@@ -107,7 +108,9 @@ pnpm --filter @bloctop/editor exec next start -p 3001
 
 新建岩场采用 MongoDB transaction，需要 replica set 或 mongos；普通 standalone 开发库不能验证此流程。R2 上传默认 create-only，覆盖需要 checkOnly 得到的 ETag；API 的 partial 响应可能表示引用已变或图片写入状态不确定，重试前刷新核对。
 
-离线浏览器回归可在无凭据 PWA 生产构建、本地 4100 服务上执行 `pnpm --filter @bloctop/pwa exec node scripts/offline-sw-smoke.mjs`。脚本只接受 localhost/127.0.0.1，使用本地 IndexedDB/Cache fixture 和真实 SW/页面，关闭外部请求；它验证冷启动、刷新和新旧多图阅读，不验证真实下载接口、R2 或 Safari。服务器快照/下载流程另由隔离单元测试覆盖。
+离线浏览器回归可在无凭据 PWA 生产构建、本地 4100 服务上执行 `pnpm --filter @bloctop/pwa exec node scripts/offline-sw-smoke.mjs`。脚本只接受 localhost/127.0.0.1，使用本地 IndexedDB/Cache fixture 和真实 SW/页面，关闭外部请求；它验证冷启动、刷新和新旧多图阅读，不验证真实下载接口、R2 或 Safari。新增 `scripts/offline-download-smoke.mjs` 用实际下载按钮/provider、原生 IDB/Cache 与本地跨 origin HTTP 图片验证下载、坏图/503/CORS 失败、重试、同数更新、取消及多标签页；通过本地代理使用已构建的真实离线页面/SW，禁止外部 API，并只将 SW 图片域名替换为本地 fixture。此脚本不会调用真实 R2/生产下载 API，捕获任何 pageerror 即失败；偶发页面水合问题目前仍为发布阻断。
+
+真实数据库验收需显式设置 `BLOCTOP_TEST_MONGODB_URI=mongodb://127.0.0.1:37117/?replicaSet=bloctop-test`，再运行 `pnpm --filter @bloctop/shared test:integration:mongo`。只接受 loopback 和指定 replica set；每个用例创建随机 `bloctop_test_*` 库，仅清理自身创建的库。CI 使用固定 digest 的 Docker Official Image Mongo 8.0.32，退出时删除该次容器。普通 `test:run` 不运行这组真实数据库测试，不要传入应用或生产 URI。
 
 ## 6. 数据维护脚本不是初始化捷径
 

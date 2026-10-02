@@ -49,7 +49,7 @@ export async function PATCH(
 
     const updatedAreas = await updateCragAreas(cragId, areas)
 
-    revalidateCragPages(cragId)
+    await revalidateCragPages(cragId)
 
     return NextResponse.json({
       success: true,

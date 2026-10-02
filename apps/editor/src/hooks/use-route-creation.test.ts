@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { useRouteCreation } from './use-route-creation'
+import { PUBLISHING_DELAY_MESSAGE } from '@/lib/publishing-feedback'
 
+const toast = vi.hoisted(() => vi.fn())
 vi.mock('@bloctop/ui/components/toast', () => ({
-  useToast: () => ({ showToast: vi.fn() }),
+  useToast: () => ({ showToast: toast }),
 }))
 vi.mock('@/lib/route-validation', async () => {
   const actual = await vi.importActual('@/lib/route-validation')
@@ -86,5 +88,19 @@ describe('useRouteCreation', () => {
     expect(created).toEqual(mockCreated)
     expect(setRoutes).toHaveBeenCalled()
     expect(result.current.isCreatingRoute).toBe(false)
+  })
+
+  it('通知延迟仍完成创建并加入权威记录，提示延迟且不再次POST', async () => {
+    const setRoutes = vi.fn()
+    const created = { id: 99, name: '新线路', grade: 'V2', area: '主墙', cragId: 'test-crag' }
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ route: created, refreshPending: true }) })
+    const { result } = setup({ setRoutes })
+    act(() => result.current.handleStartCreate())
+    act(() => result.current.setNewRoute(prev => ({ ...prev, name: '新线路' })))
+    await act(async () => { expect(await result.current.handleSubmitCreate()).toEqual(created) })
+    expect(setRoutes.mock.calls[0][0]([])).toEqual([created])
+    expect(result.current.isCreatingRoute).toBe(false)
+    expect(toast).toHaveBeenCalledWith(PUBLISHING_DELAY_MESSAGE, 'info', 8000)
+    expect(fetch).toHaveBeenCalledTimes(1)
   })
 })

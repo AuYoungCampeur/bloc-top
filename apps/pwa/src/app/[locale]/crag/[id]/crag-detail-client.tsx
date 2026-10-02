@@ -9,7 +9,8 @@ import { FileText, Car, ChevronLeft, Heart, Mountain } from 'lucide-react'
 import { CoverCarousel } from '@/components/cover-carousel'
 import { Button } from '@/components/ui/button'
 import { Drawer } from '@/components/ui/drawer'
-import { getCragCoverUrl } from '@/lib/constants'
+import { getCragCoverImages } from '@/lib/crag-cover-images'
+import { useOnlineCragContent } from '@/hooks/use-online-crag-content'
 import { computeGradeRange, formatGradeRange } from '@/lib/grade-utils'
 import AMapContainer from '@/components/amap-container'
 import { WeatherCard } from '@/components/weather-card'
@@ -24,27 +25,20 @@ interface CragDetailClientProps {
   routes: Route[]
 }
 
-export default function CragDetailClient({ crag, routes }: CragDetailClientProps) {
+export default function CragDetailClient({ crag: initialCrag, routes: initialRoutes }: CragDetailClientProps) {
+  const seed = useMemo(() => ({ crag: initialCrag, routes: initialRoutes }), [initialCrag, initialRoutes])
+  const { crag, routes } = useOnlineCragContent(initialCrag.id, seed) ?? seed
   const t = useTranslations('CragDetail')
   const router = useRouter()
   const isMobile = useMediaQuery('(max-width: 640px)')
   const heroRef = useRef<HTMLDivElement>(null)
   const [imageVisible, setImageVisible] = useState(true)
   const [isCreditsOpen, setIsCreditsOpen] = useState(false)
-  const [coverError, setCoverError] = useState(false)
+  const [failedCovers, setFailedCovers] = useState<string | null>(null)
 
-  // 生成封面图 URL（基于数据库 coverImages 数量，0-based 索引）
-  // 从 coverImages URL 提取上传时间戳，用于绕过 Next.js Image 优化缓存
-  const coverCount = crag.coverImages?.length ?? 0
-  const coverTimestamp = useMemo(() => {
-    const url = crag.coverImages?.[0]
-    if (!url) return undefined
-    const match = url.match(/[?&]t=(\d+)/)
-    return match ? parseInt(match[1]) : undefined
-  }, [crag.coverImages])
-  const images = coverCount > 0
-    ? Array.from({ length: coverCount }, (_, i) => getCragCoverUrl(crag.id, i, coverTimestamp))
-    : [getCragCoverUrl(crag.id, 0)]
+  const images = getCragCoverImages(crag)
+  const coversKey = images.join('\n')
+  const coverError = failedCovers === coversKey
 
   // 监听 Hero 图片可见性（Mobile only）
   useEffect(() => {
@@ -96,6 +90,7 @@ export default function CragDetailClient({ crag, routes }: CragDetailClientProps
           /* Mobile: 单张图片，无轮播 */
           <div className="relative h-48">
             <Image
+              key={images[0]}
               src={images[0]}
               alt={crag.name}
               fill
@@ -103,7 +98,7 @@ export default function CragDetailClient({ crag, routes }: CragDetailClientProps
               sizes="100vw"
               className="object-cover"
               draggable={false}
-              onError={() => setCoverError(true)}
+              onError={() => setFailedCovers(coversKey)}
             />
           </div>
         ) : (
@@ -111,7 +106,7 @@ export default function CragDetailClient({ crag, routes }: CragDetailClientProps
           <CoverCarousel
             images={images}
             alt={crag.name}
-            onError={() => setCoverError(true)}
+            onError={() => setFailedCovers(coversKey)}
           />
         )}
       </div>
@@ -334,4 +329,3 @@ export default function CragDetailClient({ crag, routes }: CragDetailClientProps
     </div>
   )
 }
-

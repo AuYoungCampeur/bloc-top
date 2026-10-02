@@ -221,6 +221,8 @@ describe('Route operations', () => {
     mockInsertOne.mockResolvedValue({ insertedId: 101 })
     const route = await createRoute({ name: '新线路', grade: 'V5', cragId: 'crag-1', area: '区域1' })
     expect(route.id).toBe(101)
+    expect(route.topoVersion).toBe(0)
+    expect(mockInsertOne).toHaveBeenLastCalledWith(expect.objectContaining({ _id: 101, topoVersion: 0 }))
   })
 
   it('createRoute should use id 1 when collection is empty', async () => {
@@ -246,11 +248,13 @@ describe('Route operations', () => {
   })
 
   it('updateRoute truly unsets all compatibility fields for an empty annotation array', async () => {
-    mockFindOneAndUpdate.mockResolvedValue({ ...ROUTE_DOC, topoAnnotations: [] })
-    await updateRoute(42, { topoAnnotations: [] })
-    expect(mockFindOneAndUpdate).toHaveBeenCalledWith({ _id: 42 }, {
+    mockFindOne.mockResolvedValue({ ...ROUTE_DOC, faceId: 'wall', faceArea: 'A', topoLine: [{ x: 0, y: 0 }, { x: 1, y: 1 }], topoTension: 0.5 })
+    mockFindOneAndUpdate.mockResolvedValue({ ...ROUTE_DOC, topoAnnotations: [], topoVersion: 1 })
+    await updateRoute(42, { topoAnnotations: [] }, { expectedTopoVersion: 0 })
+    expect(mockFindOneAndUpdate).toHaveBeenCalledWith(expect.objectContaining({ _id: 42, topoVersion: { $exists: false } }), {
       $set: { topoAnnotations: [], updatedAt: expect.any(Date) },
       $unset: { faceId: '', faceArea: '', topoLine: '', topoTension: '' },
+      $inc: { topoVersion: 1 },
     }, { returnDocument: 'after' })
   })
 

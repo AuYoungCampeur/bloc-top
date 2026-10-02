@@ -51,8 +51,8 @@
 2. 有非空 `topoAnnotations` 就读取新数据，否则从有效旧字段建立单条标注。
 3. 添加岩面生成一个空标注；编辑点、张力和切换标注都先操作本地状态。选择岩面本身不立即 PATCH。
 4. 点击保存时只保留至少两个点的标注，把数组与表单字段一起 PATCH；第一条有效标注同步至旧字段，无有效标注时旧字段传 null。
-5. API 校验 session、该线路所属岩场权限和字段，再通过共享 DB 更新。
-6. 成功响应替换本地线路数据，调用 PWA 重验证。未完成的单点/空标注不会保存。
+5. API 校验当前 session、该线路所属岩场权限、字段及 `expectedTopoVersion`，再通过共享 DB 原子更新。版本缺失返回 428，冲突返回 409，保留草稿并要求核对；不会自动以新版本覆盖。
+6. 成功响应替换本地线路数据，等待有限时长的 PWA 重验证；`refreshPending` 提示已保存但用户端更新可能延迟。未完成的单点/空标注不会保存。
 
 完整实现：[use-route-editor.ts](../apps/editor/src/hooks/use-route-editor.ts)、[线路 API](../apps/editor/src/app/api/routes/[id]/route.ts)。全屏编辑取消会恢复进入时的标注快照；路由切换保护由 `useDirtyGuard` 协调。
 
@@ -62,7 +62,7 @@
 
 两端复用共享 `face-api` / `face-management`。改名先条件复制新图，再改所有匹配标注与兼容字段，最后清旧图；删除先清引用再删图。以完整岩场+区域+岩面匹配，保留其他标注。成功响应返回服务端 Topo 字段，后台合并时保留当前 Beta 和文字。
 
-服务可能返回 `partial`、`cleanupPending`、`revisionPending` 或 `imageChangeUnknown`；页面显示警告并提供刷新核对，失败不保证全部回滚。引用写入保护自身快照，但晚到的旧线路保存及 HEAD→Delete 竞态仍未解决；不能把条件上传当作跨数据库/对象存储事务。
+服务可能返回 `partial`、`cleanupPending`、`revisionPending` 或 `imageChangeUnknown`；页面显示警告并提供刷新核对，失败不保证全部回滚。引用写入递增线路 `topoVersion`，晚到的旧 Topo PATCH 返回冲突；界面合并时拒绝低版本响应覆盖新引用。HEAD→Delete、新线路晚加入引用及跨服务崩溃恢复仍未解决；不能把条件上传当作跨数据库/对象存储事务。成功写入若通知失败显示 `refreshPending`，不误报全部保存失败。
 
 ### 新建岩场与上下文
 
@@ -103,13 +103,13 @@
 | 顺序 | 已观察到的事实 | 后续工作与验收目标 |
 | --- | --- | --- |
 | 1 | 2026-10-02 共用环境认证配置，localhost Cookie/session 隔离存储集成测试通过 | 仍需验收真实邮箱、Passkey 设备和后台权限；独立 Preview 跨域登录及 alias Passkey 未完成 |
-| 2 | 共用三元身份与多图引用变换、条件上传和准确部分失败响应；针对跨区域同名和多图有回归 | 仍需隔离真实 R2 验收；补旧线路保存的版本冲突和跨服务崩溃恢复 |
+| 2 | 共用三元身份与多图引用变换、条件上传和准确部分失败响应；针对跨区域同名和多图有回归 | 版本冲突已覆盖真实 Mongo 并发；仍需隔离真实 R2 验收、新线路引用屏障和跨服务崩溃恢复 |
 | 3 | 2026-10-02 两端复用 shared `createBetaHandlers`，提交认证、原子去重和缺失记录处理已统一 | 保留业务回归，后续完善发布通知与完整用户提交验收 |
-| 4 | `revalidate-pwa.ts` 只记录失败，部分调用没有等待；face handler 现已等待通知，但共享路径帮助仍不含完整线路列表 | 梳理每个写入对应哪些缓存；补有限时长与可恢复通知，验收 PWA 新请求、已打开页面和其他客户端图片可见性 |
+| 4 | Editor 等待最长 3 秒的通知；路径包含三语首页/岩场/线路列表，主要写入返回 refreshPending 并提示 | 仍需持久重试与实际跨应用通知验收；已打开页面和其他客户端图片不自动更新 |
 | 5 | Editor 已声明 `browser-image-compression`，根 frozen install 可恢复工作区依赖链接 | 仍需在隔离 bucket 验收大于 5 MB 图片上传和压缩失败恢复 |
 | 6 | createdBy 回退已改用 `_id`，入口/列表包含创建者并过滤遗留孤儿授权；分配授权验证目标用户/岩场存在 | 仍需角色变更与旧迁移数据实测；名单政策保持 admin-only |
 | 7 | `migrate-crag-ownership.ts` 仍写入 `role: 'creator'`，当前类型只接受 manager | 先核实实际数据与迁移意图，再修订脚本；不要直接运行旧迁移 |
-| 8 | 多图 dirty check 包含 area，Beta 独立更新保留 Topo 草稿；兼容字段增加 `faceArea` | 继续验证慢保存/并发操作；Topo 版本条件协议尚未实现 |
+| 8 | 多图 dirty check 包含 area，Beta 独立更新保留 Topo 草稿；兼容字段增加 `faceArea` | 继续验证慢保存/并发操作；版本协议和冲突保草稿已实现，完整后台浏览器流程仍需验收 |
 
 源码入口：[权限函数](../packages/shared/src/permissions.ts)、[岩面 API](../apps/editor/src/app/api/faces/route.ts)、[上传 API](../apps/editor/src/app/api/upload/route.ts)、[后台 Beta API](../apps/editor/src/app/api/beta/route.ts)、[PWA Beta API](../apps/pwa/src/app/api/beta/route.ts)、[旧授权迁移脚本](../apps/pwa/scripts/migrate-crag-ownership.ts)。
 

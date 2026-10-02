@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { Link2, User, Ruler, MoveHorizontal, Check, AlertCircle } from 'lucide-react'
 import { Drawer } from '@bloctop/ui/components/drawer'
 import { Input } from '@bloctop/ui/components/input'
 import { detectPlatformFromUrl, isXiaohongshuUrl, extractUrlFromText, BETA_PLATFORMS } from '@bloctop/shared/beta-constants'
 import { useClimberBodyData } from '@/hooks/use-climber-body-data'
+import { useSession } from '@/lib/auth-client'
 import type { BetaLink } from '@bloctop/shared/types'
 
 /** API 错误码 → 中文提示 */
@@ -42,6 +43,10 @@ export function BetaSubmitDrawer({
   routeName,
   onSuccess,
 }: BetaSubmitDrawerProps) {
+  const { data: session } = useSession()
+  const userId = session?.user?.id
+  const actor = `${userId ?? 'anonymous'}:${session?.session?.id ?? ''}`
+  const nicknameKey = userId ? `beta_nickname:user:${userId}` : 'beta_nickname:anonymous'
   const { bodyData, updateBodyData } = useClimberBodyData()
   const [url, setUrl] = useState('')
   const [nickname, setNickname] = useState('')
@@ -50,15 +55,36 @@ export function BetaSubmitDrawer({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
+  const generation = useRef(0)
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // An in-flight POST can still save after leaving this form. Its response
+  // belongs only to the account, route and drawer opening that submitted it.
+  useEffect(() => {
+    generation.current += 1
+    async function resetContext() {
+      setUrl('')
+      setError(null)
+      setSuccess(false)
+      setIsSubmitting(false)
+    }
+    resetContext()
+    return () => {
+      generation.current += 1
+      if (closeTimer.current) clearTimeout(closeTimer.current)
+      closeTimer.current = null
+    }
+  }, [actor, routeId, isOpen])
 
   // 抽屉打开时，用缓存数据预填充表单
   useEffect(() => {
     if (isOpen) {
-      setNickname(localStorage.getItem('beta_nickname') || '')
+      // The legacy global nickname has unknown ownership; never import it.
+      try { setNickname(localStorage.getItem(nicknameKey) || '') } catch { setNickname('') }
       setHeight(bodyData.height)
       setReach(bodyData.reach)
     }
-  }, [isOpen, bodyData.height, bodyData.reach])
+  }, [isOpen, actor, routeId, nicknameKey, bodyData.height, bodyData.reach])
 
   // 检测平台
   const detectedPlatform = url ? detectPlatformFromUrl(url) : null
@@ -102,6 +128,10 @@ export function BetaSubmitDrawer({
 
   // 关闭抽屉
   const handleClose = useCallback(() => {
+    generation.current += 1
+    if (closeTimer.current) clearTimeout(closeTimer.current)
+    closeTimer.current = null
+    setIsSubmitting(false)
     resetForm()
     onClose()
   }, [resetForm, onClose])
@@ -120,6 +150,8 @@ export function BetaSubmitDrawer({
 
     setIsSubmitting(true)
     setError(null)
+    const submittedGeneration = generation.current
+    const isCurrent = () => generation.current === submittedGeneration
 
     try {
       const response = await fetch('/api/beta', {
@@ -142,17 +174,19 @@ export function BetaSubmitDrawer({
       }
 
       const data = await response.json()
+      if (!isCurrent()) return
       setSuccess(true)
-      if (nickname.trim()) localStorage.setItem('beta_nickname', nickname.trim())
+      try { if (nickname.trim()) localStorage.setItem(nicknameKey, nickname.trim()) } catch {}
       updateBodyData({ height, reach })
-      setTimeout(() => {
+      closeTimer.current = setTimeout(() => {
+        if (!isCurrent()) return
         handleClose()
-        onSuccess?.(data.beta as BetaLink)
+        if (data.beta) onSuccess?.(data.beta as BetaLink)
       }, 1500)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '提交失败，请重试')
+      if (isCurrent()) setError(err instanceof Error ? err.message : '提交失败，请重试')
     } finally {
-      setIsSubmitting(false)
+      if (isCurrent()) setIsSubmitting(false)
     }
   }
 

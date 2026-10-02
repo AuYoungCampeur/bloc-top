@@ -127,12 +127,20 @@ describe('PATCH /api/crags/[id]', () => {
     mockUpdateCrag.mockResolvedValue({ ...SAMPLE_CRAG, name: '新名字' })
 
     const res = await PATCH(
-      createPatchRequest({ name: '新名字', id: 'hacked', secretField: 'x' }),
+      createPatchRequest({ name: '新名字', secretField: 'x' }),
       makeParams('yuan-tong-si')
     )
     expect(res.status).toBe(200)
     // Should only pass allowed fields to updateCrag
     expect(mockUpdateCrag).toHaveBeenCalledWith('yuan-tong-si', { name: '新名字' })
+  })
+
+  it('rejects an identity change together with metadata and makes no partial update', async () => {
+    mockRequireAuth.mockResolvedValue({ userId: 'u1', role: 'admin' })
+    mockCanEditCrag.mockResolvedValue(true)
+    const res = await PATCH(createPatchRequest({ name: '新名字', id: 'hacked' }), makeParams('yuan-tong-si'))
+    expect(res.status).toBe(400)
+    expect(mockUpdateCrag).not.toHaveBeenCalled()
   })
 
   it('should return 404 when crag not found for update', async () => {

@@ -61,7 +61,7 @@
 - 图片必须可读、HTTP 成功、类型正确且能解码；opaque/CORS 失败不计成功。进度区分处理数、缓存数、失败数，任一必需图片失败不发布新快照，旧下载仍可用。
 - IndexedDB `offline-crags` v2 保存岩场、线路、图片 manifest 和下载信息；在事务完成后才发布可用状态。Cache API `offline-crag-images` 保存通过检查的图片；localStorage 元数据供轻量展示，同标签页通过事件更新。
 - 离线入口 `/{locale}/offline?offlineCrag=id&offlineRoute=number` 从 IndexedDB/Cache 读取详情和多图 Topo，不经 Next Image optimizer 或在线 API。旧下载允许浏览并提示更新修复。
-- 删除入口统一清理快照、图片和元数据；旧版本/删除后的图片清理任务保存在 IndexedDB，失败保留待重试任务。两个独立存储不构成跨标签页事务；并发下载/删除仍需后续验收。
+- 删除入口统一清理快照、图片和元数据；旧版本/删除后的图片清理任务保存在 IndexedDB，失败保留待重试任务。两个独立存储不构成事务；协作标签页用每岩场 Web Locks 串行化下载、删除和媒体清理，BroadcastChannel 通知取消及刷新。支持这些 API 的 Chromium 下已通过本地真实浏览器并发验收；不支持 Web Locks 时仅保证同标签页队列，不宣称旧浏览器跨标签页串行。
 - 同标签页每岩场的下载/删除串行，删除取消进行中和已排队下载；网络与解码请求有超时，迟到响应不能发布被取消快照。旧标签页阻塞 IDB 升级时明确反馈，释放失败单例供重试；版本变化关闭旧连接。离线指示条使用原生链接进入本地资料壳。
 - `next.config.ts` 在开发环境关闭 Service Worker；普通 `pnpm dev` 不能验收生产离线效果。
 

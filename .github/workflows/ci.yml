@@ -15,7 +15,7 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -43,6 +43,10 @@ jobs:
       - name: Run browser component tests
         run: pnpm test:ct
       - name: Build both applications without service credentials
+        env:
+          NEXT_PUBLIC_PWA_URL: http://localhost:4200
+          NEXT_PUBLIC_EDITOR_URL: http://localhost:4201
+          NEXT_PUBLIC_APP_URL: http://localhost:4201
         run: pnpm build
       - name: Verify offline cold start with local fixtures
         shell: bash
@@ -63,7 +67,39 @@ jobs:
             cat "$RUNNER_TEMP/offline-pwa.log"
             exit 1
           fi
+          node scripts/offline-hydration-smoke.mjs
           node scripts/offline-sw-smoke.mjs
+          node scripts/offline-download-smoke.mjs
+
+      - name: Verify Mongo writes and both application sessions with isolated data
+        shell: bash
+        run: |
+          # Docker Official Image mongo 8.0.32, Linux amd64 manifest pinned.
+          TEST_MONGO_IMAGE=mongo@sha256:a70d9916fd916ddfdf6fd8552784c599eb26f88c59951c7bcdc50abd158e8be7
+          TEST_MONGO_CONTAINER="bloctop-mongo-${{ github.run_id }}-${{ matrix.node }}"
+          trap 'docker rm --force --volumes "$TEST_MONGO_CONTAINER" >/dev/null 2>&1 || true' EXIT
+          docker run --detach --name "$TEST_MONGO_CONTAINER" \
+            --publish 127.0.0.1:37117:37117 "$TEST_MONGO_IMAGE" \
+            --replSet bloctop-test --port 37117 --bind_ip_all
+          TEST_MONGO_READY=false
+          for attempt in {1..40}; do
+            if docker exec "$TEST_MONGO_CONTAINER" mongosh --port 37117 --quiet --eval '
+              try { rs.status() } catch { rs.initiate({ _id: "bloctop-test", members: [{ _id: 0, host: "127.0.0.1:37117" }] }) }
+              quit(db.hello().isWritablePrimary ? 0 : 1)
+            ' >/dev/null 2>&1; then
+              TEST_MONGO_READY=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$TEST_MONGO_READY" != true ]; then
+            docker logs "$TEST_MONGO_CONTAINER"
+            exit 1
+          fi
+          BLOCTOP_TEST_MONGODB_URI='mongodb://127.0.0.1:37117/?replicaSet=bloctop-test' \
+            pnpm --filter @bloctop/shared test:integration:mongo
+          BLOCTOP_TEST_MONGODB_URI='mongodb://127.0.0.1:37117/?replicaSet=bloctop-test' \
+            pnpm --filter @bloctop/pwa exec node scripts/admin-session-smoke.mjs
 
   required-checks:
     # Keep the existing protected-branch check names. Each requires the complete

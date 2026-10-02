@@ -66,7 +66,7 @@ export const CoverCarousel = memo(function CoverCarousel({
       <div className="flex h-full">
         {images.map((src, idx) => (
           <div
-            key={idx}
+            key={src}
             className={`w-full flex-shrink-0 ${height} relative`}
             style={{ scrollSnapAlign: 'start' }}
           >

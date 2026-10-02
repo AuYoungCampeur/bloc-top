@@ -1,7 +1,8 @@
 // apps/editor/src/components/editor/inline-face-upload.test.tsx
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { act, render, screen, fireEvent } from '@testing-library/react'
 import { InlineFaceUpload } from './inline-face-upload'
+import { PUBLISHING_DELAY_MESSAGE } from '@/lib/publishing-feedback'
 
 // Mock ImageUploadZone — exposes both file selection trigger and upload button
 vi.mock('./image-upload-zone', () => ({
@@ -30,11 +31,24 @@ vi.mock('./image-upload-zone', () => ({
 }))
 
 // Mock useToast
+const toast = vi.hoisted(() => vi.fn())
 vi.mock('@bloctop/ui/components/toast', () => ({
-  useToast: () => ({ showToast: vi.fn() }),
+  useToast: () => ({ showToast: toast }),
 }))
+beforeEach(() => { vi.clearAllMocks(); URL.createObjectURL = vi.fn().mockReturnValue('blob:preview'); URL.revokeObjectURL = vi.fn() })
 
 describe('InlineFaceUpload', () => {
+  it('用户端通知延迟仍开始标注并仅提示保存完成警告，不重复上传', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ success: true, refreshPending: true }) })
+    const onSuccess = vi.fn()
+    render(<InlineFaceUpload cragId="a" area="北区" onUploadSuccess={onSuccess} />)
+    fireEvent.change(screen.getByPlaceholderText(/如.*zhu-qiang/), { target: { value: 'new-face' } })
+    fireEvent.click(screen.getByTestId('file-select-trigger'))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '上传并开始标注' })) })
+    await vi.waitFor(() => expect(onSuccess).toHaveBeenCalledWith('new-face'))
+    expect(toast).toHaveBeenCalledExactlyOnceWith(PUBLISHING_DELAY_MESSAGE, 'info', 8000)
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
   it('显示区域只读 badge', () => {
     render(
       <InlineFaceUpload cragId="test-crag" area="主墙" onUploadSuccess={vi.fn()} />
@@ -82,7 +96,7 @@ describe('InlineFaceUpload', () => {
     // 3. 点击上传按钮（此时 disabled 应已解除）
     const uploadBtn = screen.getByRole('button', { name: /上传并开始标注/ })
     expect((uploadBtn as HTMLButtonElement).disabled).toBe(false)
-    fireEvent.click(uploadBtn)
+    await act(async () => { fireEvent.click(uploadBtn) })
 
     // 4. 验证 fetch 被调用，以及 onSuccess 被调用并传入正确 faceId
     await vi.waitFor(() => {

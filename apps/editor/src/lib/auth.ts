@@ -51,11 +51,7 @@ export function getAuth(): Promise<ReturnType<typeof betterAuth>> {
           }),
         ],
 
-        session: {
-          expiresIn: 60 * 60 * 24 * 30,
-          updateAge: 60 * 60 * 24,
-          cookieCache: { enabled: true, maxAge: 60 * 5 },
-        },
+        session: runtime.session,
 
         rateLimit: { window: 60, max: 10 },
 

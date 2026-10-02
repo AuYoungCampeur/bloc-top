@@ -180,14 +180,16 @@ export async function getCragOffline(cragId: string): Promise<OfflineCragData | 
 /**
  * 获取所有已下载的岩场
  */
-export async function getAllOfflineCrags(): Promise<OfflineCragData[]> {
+export async function getAllOfflineCrags(options: { drainCleanup?: boolean } = {}): Promise<OfflineCragData[]> {
   const db = await openDB()
   const pending = await new Promise<{ cragId: string }[]>(resolve => {
     const request = db.transaction(CLEANUP_STORE, 'readonly').objectStore(CLEANUP_STORE).getAll()
     request.onsuccess = () => resolve(request.result ?? [])
     request.onerror = () => resolve([])
   })
-  for (const item of pending) await drainImageCleanup(item.cragId).catch(() => { /* Keep queue until storage recovers. */ })
+  if (options.drainCleanup !== false) {
+    for (const item of pending) await drainImageCleanup(item.cragId).catch(() => { /* Keep queue until storage recovers. */ })
+  }
 
   return new Promise((resolve, reject) => {
     const transaction = db.transaction([STORE_NAME], 'readonly')
@@ -220,7 +222,7 @@ export async function getAllOfflineCrags(): Promise<OfflineCragData[]> {
 const cleanupRuns = new Map<string, Promise<void>>()
 async function drainImageCleanup(cragId: string): Promise<void> {
   const previous = cleanupRuns.get(cragId) ?? Promise.resolve()
-  const run = previous.catch(() => {}).then(() => consumeImageCleanup(cragId))
+  const run = previous.catch(() => {}).then(() => withOfflineCragOperation(cragId, 'cleanup', () => consumeImageCleanup(cragId)))
   cleanupRuns.set(cragId, run)
   try { await run } finally { if (cleanupRuns.get(cragId) === run) cleanupRuns.delete(cragId) }
 }
@@ -259,7 +261,8 @@ export async function deleteCragOffline(cragId: string): Promise<void> {
 
 async function performOfflineDeletion(cragId: string): Promise<void> {
   const stored = await getCragOffline(cragId)
-  const others = await getAllOfflineCrags()
+  // Already holding this crag's lifecycle lock; do not recursively acquire it for cleanup.
+  const others = await getAllOfflineCrags({ drainCleanup: false })
   const referenced = new Set(others.filter(item => item.cragId !== cragId).flatMap(storedImageUrls))
   const urls = new Set(stored ? storedImageUrls(stored) : [])
   // Include verified partial downloads and previous revisions belonging to this crag.
@@ -281,7 +284,7 @@ async function performOfflineDeletion(cragId: string): Promise<void> {
     tx.oncomplete = () => { removeMeta(cragId); resolve() }
   })
   // Failure retains the queue for the next cleanup attempt. The deleted snapshot is never advertised.
-  await drainImageCleanup(cragId)
+  await consumeImageCleanup(cragId)
 }
 
 /**

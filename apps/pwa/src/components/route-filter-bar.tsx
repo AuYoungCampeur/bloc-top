@@ -83,6 +83,7 @@ export function RouteFilterBar({
           onFaceSelect={onFaceSelect}
           selectedArea={selectedArea}
           onAreaChange={onAreaChange}
+          mediaRevision={crags.find(crag => crag.id === selectedCrag)?.mediaRevision}
         />
       ) : (
         <p

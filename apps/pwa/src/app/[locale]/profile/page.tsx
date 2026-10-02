@@ -25,12 +25,13 @@ export default function ProfilePage() {
   const sessionHook = useSession()
   const session = sessionHook.data
   const isLoggedIn = !!session
+  const userId = session?.user.id
   const isAdmin = (session?.user as { role?: string } | undefined)?.role === 'admin'
 
   // Avatar local state (overrides session until next refresh)
-  const [localAvatarUrl, setLocalAvatarUrl] = useState<string | null | undefined>(undefined)
-  const avatarUrl = localAvatarUrl !== undefined
-    ? localAvatarUrl
+  const [localAvatar, setLocalAvatar] = useState<{ userId: string; url: string | null } | null>(null)
+  const avatarUrl = localAvatar && localAvatar.userId === userId
+    ? localAvatar.url
     : (session?.user as { image?: string | null } | undefined)?.image ?? null
 
   // Keep refetch in a ref so the callback stays stable
@@ -39,23 +40,37 @@ export default function ProfilePage() {
   sessionRefetchRef.current = (sessionHook as any).refetch
 
   const handleAvatarChange = useCallback((url: string | null) => {
-    setLocalAvatarUrl(url)
+    if (!userId) return
+    setLocalAvatar({ userId, url })
     // Force useSession() atom to refetch from DB, bypassing cookie cache
     sessionRefetchRef.current?.({ query: { disableCookieCache: true } })
-  }, [])
+  }, [userId])
 
   // Editor access check — fetch /api/editor/crags when logged in
-  const [hasEditorAccess, setHasEditorAccess] = useState(false)
+  const [editorAccess, setEditorAccess] = useState<{ userId: string; allowed: boolean } | null>(null)
+  const accessContext = `${session?.session.id ?? ''}:${userId ?? ''}:${isAdmin}`
+  const [previousAccessContext, setPreviousAccessContext] = useState(accessContext)
+  if (previousAccessContext !== accessContext) {
+    setPreviousAccessContext(accessContext)
+    setEditorAccess(null)
+    setLocalAvatar(null)
+  }
+  const hasEditorAccess = isLoggedIn && (isAdmin || Boolean(editorAccess?.userId === userId && editorAccess?.allowed))
   useEffect(() => {
-    if (!isLoggedIn) { setHasEditorAccess(false); return }
-    if (isAdmin) { setHasEditorAccess(true); return }
-    fetch('/api/editor/crags')
+    if (!userId || isAdmin) return
+    const controller = new AbortController()
+    fetch('/api/editor/crags', { cache: 'no-store', signal: controller.signal })
       .then((res) => res.ok ? res.json() : null)
       .then((data) => {
-        if (data && data.crags?.length > 0) setHasEditorAccess(true)
+        if (!controller.signal.aborted) {
+          setEditorAccess({ userId, allowed: Boolean(data?.crags?.length) })
+        }
       })
-      .catch(() => {})
-  }, [isLoggedIn, isAdmin])
+      .catch(() => {
+        if (!controller.signal.aborted) setEditorAccess({ userId, allowed: false })
+      })
+    return () => controller.abort()
+  }, [userId, isAdmin, accessContext])
 
   // Drawer states
   const [securityDrawerOpen, setSecurityDrawerOpen] = useState(false)

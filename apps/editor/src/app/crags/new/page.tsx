@@ -13,6 +13,8 @@ import { useSession } from '@/lib/auth-client'
 import { ConfirmDialog } from '@/components/editor/confirm-dialog'
 import { CRAG_ID_PATTERN, isValidCoordinates } from '@/lib/crag-validation'
 import { pinyin } from 'pinyin-pro'
+import { useToast } from '@bloctop/ui/components/toast'
+import { publishingDelayMessage } from '@/lib/publishing-feedback'
 
 interface CreateForm {
   id: string
@@ -48,6 +50,7 @@ export default function NewCragPage() {
   useBreakAppShellLimit()
 
   const router = useRouter()
+  const { showToast } = useToast()
   const { data: session, isPending } = useSession()
   const isAdmin = !isPending && session?.user?.role === 'admin'
   const userId = session?.user?.id
@@ -214,6 +217,7 @@ export default function NewCragPage() {
       // 创建成功，跳转到新岩场详情页
       if (!data.crag?.id) throw new Error('创建响应缺少岩场')
       setIsDirty(false)
+      if (data.refreshPending) showToast(publishingDelayMessage(data.warning), 'info', 8000)
       router.push(`/crags/${encodeURIComponent(data.crag.id)}`)
     } catch {
       if (currentCreatorRef.current === userId) setSaveError('网络错误，请重试')

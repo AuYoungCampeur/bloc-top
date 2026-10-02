@@ -35,14 +35,8 @@ const withSerwist = withSerwistInit({
 
 const nextConfig: NextConfig = {
   turbopack: {},
-  // 永久路由缓存 - 页面段在客户端缓存 1 年
-  // 新版本发布时，Service Worker 更新机制会触发刷新
   experimental: {
     optimizePackageImports: ['lucide-react'],
-    staleTimes: {
-      dynamic: 31536000, // 1 年 (秒) - 动态页面
-      static: 31536000,  // 1 年 (秒) - 静态页面
-    },
   },
   images: {
     remotePatterns: [
