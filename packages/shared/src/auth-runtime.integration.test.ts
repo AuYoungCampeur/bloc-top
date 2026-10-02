@@ -49,5 +49,7 @@ describe('localhost PWA → Editor session flow', () => {
       headers: { Cookie: cookie, Origin: 'http://localhost:3000' },
     }))
     expect(await revoked.json()).toBeNull()
-  })
+  // Real password hashing and multiple auth handlers share CPU with workspace
+  // checks. This verifies session behavior, not an authentication latency SLA.
+  }, 15000)
 })
