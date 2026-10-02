@@ -65,7 +65,7 @@ function createGetRequest(cragId?: string): NextRequest {
   return new NextRequest(url)
 }
 
-function createBodyRequest(method: string, body: Record<string, unknown>): NextRequest {
+function createBodyRequest(method: string, body: unknown): NextRequest {
   return new NextRequest('http://localhost:3000/api/crag-permissions', {
     method,
     body: JSON.stringify(body),
@@ -128,6 +128,17 @@ describe('GET /api/crag-permissions', () => {
 describe('POST /api/crag-permissions', () => {
   beforeEach(() => vi.clearAllMocks())
 
+  it.each([
+    null, [], { userId: { $ne: null }, cragId: 'c1', role: 'manager' },
+    { userId: 'u1', cragId: { $ne: null }, role: 'manager' },
+    { userId: 'u1', cragId: 'c1', role: ['manager'] },
+  ])('rejects invalid admin assignments %j without writing grants', async body => {
+    mockRequireAuth.mockResolvedValue({ userId: 'admin1', role: 'admin' })
+    mockCanManagePermissions.mockResolvedValue(true)
+    expect((await POST(createBodyRequest('POST', body))).status).toBe(400)
+    expect(mockCreatePerm).not.toHaveBeenCalled()
+  })
+
   it('should return 401 when not authenticated', async () => {
     mockRequireAuth.mockResolvedValue(
       NextResponse.json({ success: false }, { status: 401 })
@@ -182,6 +193,18 @@ describe('POST /api/crag-permissions', () => {
 
 describe('DELETE /api/crag-permissions', () => {
   beforeEach(() => vi.clearAllMocks())
+
+  it.each([
+    null, [], { userId: { $ne: null }, cragId: { $ne: null } },
+    { userId: 'u1', cragId: { $ne: null } }, { userId: ['u1'], cragId: 'c1' },
+    { userId: 123, cragId: 'c1' }, { userId: ' ', cragId: 'c1' },
+  ])('rejects unsafe admin input %j with 400 and no permission operations', async body => {
+    mockRequireAuth.mockResolvedValue({ userId: 'admin1', role: 'admin' })
+    mockCanManagePermissions.mockResolvedValue(true)
+    expect((await DELETE(createBodyRequest('DELETE', body))).status).toBe(400)
+    expect(mockCanManagePermissions).not.toHaveBeenCalled()
+    expect(mockDeletePerm).not.toHaveBeenCalled()
+  })
 
   it('should return 401 when not authenticated', async () => {
     mockRequireAuth.mockResolvedValue(

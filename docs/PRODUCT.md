@@ -76,7 +76,7 @@ PM/Team Lead 负责优先级、数据边界、架构评审与集成验收；后�
 | 2026-10-02 生产只读验收 | 前台 `dpl_8Xp12uo61LCjwD52KrZNuxZGtGcr` 和后台 `dpl_84WJRJrAdGMXQYf2F2xcHi1t434H` 均为生产 READY，正式域名指向相应部署。Mongo 中 route 39 晨钟暮鼓确有 1 条 Beta，原 `xhslink.cn/o/AsU8BTN9oIl` 存在；两端 GET 均 200/no-store/MISS。生产页面可读取该 Beta、独立外链与复制按钮，刷新按钮经历加载后恢复，列表保持正确。没有新建生产 Beta/账号；新提交到即时展示、完整登录/邮件/Passkey/SW 升级/离线验收仍未执行 |
 | 2026-10-02 下一批隔离开发 | 从已发布基础创建 `codex/content-integrity` worktree，未复制 env。开始完整岩面身份/多图引用、原子创建与授权、后台草稿和上下文、完整离线快照与冷启动浏览。已真实复现跨城市深链接显示 0 条（长乐 Cookie → 罗源圆通寺），切换罗源后显示 50 条；修复处于隔离工作区，尚未发布。所有新功能须独立通过验收后集成 |
 | 2026-10-02 授权索引只读检查 | `crag_permissions.listIndexes()` 未发现 userId+cragId 唯一索引；没有查询/清理实际重复授权，也没有修改索引。原 insertOne/deleteOne 不能保证去重与完整撤销；下一批在代码中补稳定主键与按用户/岩场完整撤销，并保留旧 grant 兼容 |
-| 2026-10-02 内容批次本地验收 | 隔离、无 env 工作区 Node 22 下 lint、类型、1,519 项 Vitest（PWA 788/shared 508/Editor 223）、12 项 Chromium 组件测试与强制双应用构建通过；Vitest/构建未复用 Turbo 缓存，lint 保留 PWA 6/Editor 4 项既有警告。刚构建的实际 PWA/SW 在新浏览器上下文以本地原生 IDB/Cache 夹具通过中英法断网冷启动、旧图/单图/多图详情及刷新，0 pageErrors；该 smoke 不调用生产服务，也不证明真实下载接口、跨标签页或 Safari 行为。此条仅为本地验收，远端/发布另记 |
+| 2026-10-02 内容批次本地验收 | 隔离、无 env 工作区 Node 22 下 lint、类型、1,536 项 Vitest（PWA 800/shared 513/Editor 223）、12 项 Chromium 组件测试与强制双应用构建通过；Vitest/构建未复用 Turbo 缓存，lint 保留 PWA 6/Editor 4 项既有警告。刚构建的实际 PWA/SW 在新浏览器上下文以本地原生 IDB/Cache 夹具通过中英法断网冷启动、旧图/单图/多图详情及刷新，0 pageErrors；该 smoke 不调用生产服务，也不证明真实下载接口、跨标签页或 Safari 行为。发布前追加 PWA 授权输入与数据服务防御，拒绝对象/数组/空值和 Mongo 操作符，零授权读写回归通过；完整检查和刚构建的 smoke 再次通过。此条仅为本地验收，远端/发布另记 |
 | 工作区既有开发 | 主工作区 `.serena/project.yml`、未跟踪的新建岩场页面及权限面板测试保留。隔离 worktree 内的副本经评审和业务回归后才参与集成；原文件未修改 |
 
 ## 下一批未通过的边界

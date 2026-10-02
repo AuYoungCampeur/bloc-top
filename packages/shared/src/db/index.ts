@@ -6,7 +6,7 @@ import { ObjectId } from 'mongodb'
 import type { WithId, Document } from 'mongodb'
 import { normalizeRouteTopoUpdates } from '../face-references'
 import { allocateRouteId } from '../route-id'
-import { normalizeCragGrantUserId, CragPermissionConflictError, getCragGrantId, getCragGrantUserFilter } from '../crag-grant'
+import { normalizeCragGrantUserId, CragPermissionConflictError, getCragGrantId, getCragGrantUserFilter, assertCragGrantIdentity } from '../crag-grant'
 
 // 创建数据库模块专用 logger
 const log = createModuleLogger('DB')
@@ -1211,6 +1211,7 @@ export async function getCragPermission(
   const start = Date.now()
 
   try {
+    assertCragGrantIdentity(userId, cragId)
     const db = await getDatabase()
     const doc = await db.collection('crag_permissions').findOne({ userId: getCragGrantUserFilter(userId), cragId })
 
@@ -1303,6 +1304,7 @@ export async function createCragPermission(
   const start = Date.now()
 
   try {
+    assertCragGrantIdentity(data.userId, data.cragId)
     const db = await getDatabase()
     const doc = {
       ...data,
@@ -1346,6 +1348,7 @@ export async function deleteCragPermission(
   const start = Date.now()
 
   try {
+    assertCragGrantIdentity(userId, cragId)
     const db = await getDatabase()
     const result = await db.collection('crag_permissions').deleteMany({
       userId: getCragGrantUserFilter(userId),

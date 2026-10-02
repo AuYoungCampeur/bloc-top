@@ -155,6 +155,28 @@ describe('legacy grant reads', () => {
 })
 
 describe('complete grant revocation', () => {
+  it.each([
+    [{ $ne: null }, { $ne: null }],
+    [USER_ID, { $ne: null }],
+    [null, INPUT.cragId],
+    [[USER_ID], INPUT.cragId],
+    [USER_ID, ' '],
+  ])('rejects unsafe runtime identities %j/%j before reading or modifying grants', async (userId, cragId) => {
+    const existing = legacyGrant()
+    const fixture = database([existing])
+    // JSON input can violate static types. Reject it before interpreting any
+    // Mongo operator, even when the caller is an admin.
+    const user = userId as string
+    const crag = cragId as string
+    await expect(deleteCragPermission(user, crag)).rejects.toThrow(TypeError)
+    await expect(createCragPermission({ ...INPUT, userId: user, cragId: crag })).rejects.toThrow(TypeError)
+    await expect(getCragPermission(user, crag)).rejects.toThrow(TypeError)
+    expect(fixture.records).toEqual([existing])
+    expect(fixture.deleteMany).not.toHaveBeenCalled()
+    expect(fixture.updateOne).not.toHaveBeenCalled()
+    expect(fixture.findOne).not.toHaveBeenCalled()
+  })
+
   it.each([USER_ID, USER_ID.toUpperCase(), 'AbCdEf1234567890aBcDeF12'])('removes all legacy duplicate spellings for %s and preserves other users/crags', async requested => {
     const otherCrag = legacyGrant({ cragId: 'crag-2' })
     const otherUser = legacyGrant({ userId: '1234567890abcdef12345678' })
