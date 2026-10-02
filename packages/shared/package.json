@@ -37,14 +37,14 @@
     "./*": "./src/*/index.ts"
   },
   "dependencies": {
-    "better-auth": "^1.4.18",
+    "better-auth": "1.7.7",
     "clsx": "^2.1.1",
     "mongodb": "^7.0.0",
     "pinyin-pro": "^3.28.0",
     "tailwind-merge": "^3.0.2"
   },
   "peerDependencies": {
-    "next": ">=15",
+    "next": "^16.3.8",
     "react": "^19"
   },
   "scripts": {

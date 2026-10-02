@@ -133,7 +133,7 @@ R2 操作与 MongoDB 更新没有跨服务事务。改名、删除、覆盖图�
 - 全局角色是 `admin | user`；`manager` 是岩场授权，不是第三种全局角色。服务端 API 才是写入权限边界，详见[认证文档](AUTH.md)。
 - 缓存分为 Next 页面/路由缓存、HTTP 缓存、Service Worker、FaceImageCache 内存版本、IndexedDB 离线资料，详见[PWA 文档](PWA.md)。单一失效操作不能刷新所有层。
 - PWA 构建使用 webpack 以生成 Serwist Service Worker；开发模式使用 Turbopack 且关闭 SW。Editor 构建使用默认 `next build`。
-- 代码默认域名是 `bouldering.top`、`editor.bouldering.top`、`img.bouldering.top`，并按 Vercel 部署场景编写。当前线上域名、项目设置、数据库与 R2 权限未在本次检查中验证。
+- 代码默认域名是 `bouldering.top`、`editor.bouldering.top`、`img.bouldering.top`，并按 Vercel 部署场景编写。2026-10-02 已只读核对两个 Vercel 项目的 Root Directory、Node 24、生产域名和基础版本部署；生产 Beta 读取可用。R2 写入、实际邮件与 Passkey、完整内容发布尚未验收，详见产品记录。
 - 仓库提供 `/api/mobile/sync`，全量返回岩场和线路，响应缓存一天；`lastUpdated` 是响应生成时间，不是可靠的增量同步游标。本仓库没有原生 iOS 应用代码。
 
 ## 7. 修改时应同时检查的范围

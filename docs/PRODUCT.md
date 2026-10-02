@@ -75,3 +75,16 @@ PM/Team Lead 负责优先级、数据边界、架构评审与集成验收；后�
 | 工作区既有开发 | `.serena/project.yml`、未跟踪的新建岩场页面及权限面板测试保留；未评审内容不会直接当作已交付功能 |
 
 每次完成迭代后补充实际命令、行为证据和剩余工作；完成计划不能代替产品验收。
+
+
+## 发布状态与安全升级
+
+基础版本 PR #292 已合并至 main，并部署 PWA 与 Editor；Beta GET 的只读生产检查返回 `no-store` / CDN MISS，已有 Beta 能在页面读取。没有执行新的生产 Beta 写入，因此提交后即时显示仍需隔离数据库下完整浏览器验收。
+
+内容版本 PR #293 的 Node 22/24 CI 与两端 Preview 通过，但实际生产构建页面曾出现间歇 React #418 错误（直接 Next HTTP、无代理或 SW 仍复现），目前保持未合并。不能用 CI 绿灯覆盖该失败。
+
+独立 `codex/framework-security` 基于 main 更新安全依赖与认证策略，使用本地许可字体消除构建对 Google Fonts 的请求。旧版密码与会话、Magic Link 验证记录兼容性、双应用真实浏览器流程和新的页面回归需分别核对；完成后再记录为可发布。后续内容与可靠发布改动在独立工作区，尚未视为已发布或产品成熟。
+
+安全工作区 Node 22 的 frozen install、两端 lint、四包类型、1,242 项 Vitest（PWA 719 / shared 399 / Editor 124）、12 项 Chromium 组件测试和两端强制构建通过。lint 保留既有警告；类型与单元检查各有一项 Turbo 缓存复用，构建没有复用缓存。新版 main 离线页的直接 HTML 60 次浏览器回归通过、页面错误为零；这尚不代表新版离线阅读器通过。六个本轮处理的运行时依赖 Next / Better Auth / Sharp / fast-xml-parser / next-intl / defu 在依赖审计中已无报告条目；整体审计仍有构建/测试工具条目，不宣称全依赖清零。
+
+双端真实浏览器与本地 Mongo replica set 的 `--auth-only` 验收通过：真实密码注册/登录 → Editor 与刷新，admin/manager A/user/匿名 API 隔离，真实降权后旧 Cookie 不再具有管理/非自有写入权限，退出后两端与旧 Cookie replay 均被拒绝。Beta POST 201 后列表立即显示、没有额外 GET，重复 409，重开和整页刷新仍恰好一条；页面错误与非夹具外连均为零。线路图片仅通过三个明确路径的本地 PNG 适配，测试随机库与应用进程已清理；未写生产、未验收邮件/真实 Passkey/R2/SW。
