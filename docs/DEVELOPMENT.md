@@ -56,7 +56,7 @@ PWA 默认 3000，Editor 开发脚本固定 3001。后台首次访问会重定�
 - Vercel Preview：Secure host-only Cookie，使用 `VERCEL_URL` 的 origin/RP ID，不向 `.vercel.app` 扩大 Cookie 共享。独立 Preview 的跨应用登录尚未建立。
 - 本地 `next start`：若明确配置的应用 URL 均为 localhost 且不是 Vercel 部署，使用开发 Cookie，便于验证生产构建。
 
-认证配置有 Cookie 属性测试和实际 better-auth + 隔离内存 adapter 的登录/跨端 session/退出集成测试。真实 Magic Link 投递、已有账号登录、Passkey 设备及后台权限仍需使用隔离开发环境验收，不能用配置测试替代。
+认证配置有 Cookie 属性测试和实际 better-auth + 隔离内存 adapter 的登录/跨端 session/退出集成测试，另有从 1.4.18 生成的旧密码与签名 Cookie 固定向量兼容验证。真实 Magic Link 投递、已有账号登录、Passkey 设备及后台权限仍需使用隔离开发环境验收，不能用配置测试替代。
 
 ## 4. 检查命令与实际覆盖
 
@@ -99,11 +99,11 @@ pnpm --filter @bloctop/pwa exec next start -p 3000
 pnpm --filter @bloctop/editor exec next start -p 3001
 ```
 
-两个应用的 `start` 都只是 `next start`，并不会自动沿用 Editor dev 的 3001。PWA 开发模式禁用 SW，离线验收需生产构建预览。数据页在请求时读取 MongoDB；构建无需数据库、认证、邮件或 R2 凭据，但字体构建仍需要外网。运行这些页面和 API 时仍需真实环境配置。
+两个应用的 `start` 都只是 `next start`，并不会自动沿用 Editor dev 的 3001。PWA 开发模式禁用 SW，离线验收需生产构建预览。数据页在请求时读取 MongoDB；构建无需数据库、认证、邮件或 R2 凭据，字体通过仓库内的许可文件使用 `next/font/local`，不再在构建时向 Google Fonts 请求。运行这些页面和 API 时仍需真实环境配置。
 
 `.github/workflows/ci.yml` 在 PR 和 main/codex 分支提交时，以 Node 22/24 执行 frozen install、lint、类型、隔离 Vitest、Chromium 组件测试和无服务凭据双应用构建。远端执行结果应独立核对；组件测试不覆盖完整用户业务流程。
 
-部署相关联动：域名与 HTTPS、Cookie 共享、可信 origins、Passkey RP ID、R2 图片域名与 CORS、两端一致的重验证密钥、Editor 到 PWA webhook 的可达性。
+部署相关联动：域名与 HTTPS、Cookie 共享、可信 origins、Passkey RP ID、R2 图片域名与 CORS、两端一致的重验证密钥、Editor 到 PWA webhook 的可达性。认证安全升级需要两端使用同一依赖版本，旧的待使用 Magic Link 需要重新申请；具体条件、验证边界和回滚限制见[安全升级说明](SECURITY.md)。
 
 ## 6. 数据维护脚本不是初始化捷径
 
@@ -127,3 +127,25 @@ pnpm --filter @bloctop/editor exec next start -p 3001
 | 后台保存后 PWA 数据没变 | DB 是否写入、webhook env/日志、具体失效路径、浏览器和 SW 缓存 |
 | 大图上传或干净安装失败 | browser-image-compression 安装情况、R2 权限、图片域名配置 |
 | 删除页面后 tsc 引用旧页面 | 应用 `.next/types` 的生成缓存；确认不再运行开发服务后按需清理对应缓存 |
+
+
+## 本地生产构建的认证与 Beta 验收
+
+[admin-session-smoke.mjs](../apps/pwa/scripts/admin-session-smoke.mjs) 的 `--auth-only` 模式针对当前主线的真实密码登录、跨端 session、权限隔离、降权与退出，以及 Beta 提交即时可见/重复/刷新。需要两端已构建；仅传以下公开的本地地址，AMap 留空：
+
+```bash
+NEXT_PUBLIC_PWA_URL=http://localhost:4200 \
+NEXT_PUBLIC_EDITOR_URL=http://localhost:4201 \
+NEXT_PUBLIC_APP_URL=http://localhost:4201 \
+NEXT_PUBLIC_AMAP_KEY='' pnpm build
+
+# 从仓库根目录执行；仅允许明示的本地 bloctop-test replica set。
+BLOCTOP_TEST_MONGODB_URI='mongodb://127.0.0.1:37117/?replicaSet=bloctop-test' \
+  node apps/pwa/scripts/admin-session-smoke.mjs --auth-only --preflight
+BLOCTOP_TEST_MONGODB_URI='mongodb://127.0.0.1:37117/?replicaSet=bloctop-test' \
+  node apps/pwa/scripts/admin-session-smoke.mjs --auth-only
+```
+
+脚本复制构建到不含 env 的自有临时目录，使用正常 Next CLI 启动并清理自身服务；创建带所有权标记的随机测试库，结束时核对标记再清理。两端真实业务/认证 API 不 mock；只有明确测试图片使用本地 PNG，天气被中止，浏览器显式没有 Service Worker 功能。这不验证 R2、邮件、Passkey、地图或 SW。
+
+CI 的 Node 22/24 矩阵运行上述模式，并用固定镜像自建本地 Mongo replica set。独立的[水合回归](../apps/pwa/scripts/offline-hydration-smoke.mjs)默认连续导航 60 次，要求直接 Next HTML，全部页面错误与非本地请求均失败；隔离空存储和城市/定位读取夹具不代表完整离线业务验收。

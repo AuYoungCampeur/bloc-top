@@ -46,3 +46,5 @@ git show 788c6f5:docs/plans/2026-02-20-multi-topo-annotations-design.md
 ## 后续如何保持有效
 
 架构变更更新 ARCHITECTURE；后台功能与已确认问题更新 ADMIN；配置/命令变更更新 DEVELOPMENT 和模板；认证更新 AUTH；缓存/离线与用户数据范围更新 PWA。每次标明检查依据和验证边界，不把历史计划、类型声明或权限函数当成已交付功能。
+
+[安全依赖与认证升级](SECURITY.md)：依赖版本、认证兼容性、漏洞适用条件和发布边界。

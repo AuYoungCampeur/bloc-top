@@ -49,6 +49,13 @@ export function getAuthRuntimeConfig(app: AuthApp, env: AuthEnvironment) {
   const previewHost = previewOrigin ? new URL(previewOrigin).hostname : undefined
   return {
     trustedOrigins,
+    // Better Auth's admin plugin reads sessions independently of requireAuth.
+    // Keep both consumers authoritative after role changes and revocation.
+    session: {
+      expiresIn: 60 * 60 * 24 * 30,
+      updateAge: 60 * 60 * 24,
+      cookieCache: { enabled: false },
+    },
     passkey: {
       rpID: local ? 'localhost' : preview ? previewHost : 'bouldering.top',
       origin: trustedOrigins,

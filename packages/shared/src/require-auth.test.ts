@@ -86,6 +86,11 @@ describe('createRequireAuth', () => {
     expect(result).toEqual({ userId: 'user-789', role: 'user' })
   })
 
+  it('defaults nullable Better Auth roles to user', async () => {
+    setupAuth({ id: 'user-null-role', role: null })
+    expect(await requireAuth(createRequest())).toEqual({ userId: 'user-null-role', role: 'user' })
+  })
+
   it('should pass request headers to getSession', async () => {
     const mockGetSession = vi.fn().mockResolvedValue({
       user: { id: 'u1', role: 'admin' },
@@ -98,6 +103,6 @@ describe('createRequireAuth', () => {
     })
     await requireAuth(req)
 
-    expect(mockGetSession).toHaveBeenCalledWith({ headers: req.headers })
+    expect(mockGetSession).toHaveBeenCalledWith({ headers: req.headers, query: { disableCookieCache: true } })
   })
 })

@@ -1,20 +1,22 @@
 import type { Metadata, Viewport } from 'next'
-import { Plus_Jakarta_Sans, JetBrains_Mono } from 'next/font/google'
+import localFont from 'next/font/local'
 import { getLocale } from 'next-intl/server'
 import '@bloctop/ui/styles/globals.css'
 
 // Plus Jakarta Sans - 现代几何感字体，比 Geist 更有特色
-const jakartaSans = Plus_Jakarta_Sans({
+const jakartaSans = localFont({
+  src: './fonts/PlusJakartaSans.ttf',
   variable: '--font-sans',
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700', '800'],
+  weight: '400 800',
+  display: 'swap',
 })
 
 // JetBrains Mono - 优秀的等宽字体
-const jetbrainsMono = JetBrains_Mono({
+const jetbrainsMono = localFont({
+  src: './fonts/JetBrainsMono.ttf',
   variable: '--font-mono',
-  subsets: ['latin'],
-  weight: ['400', '500', '600'],
+  weight: '400 600',
+  display: 'swap',
 })
 
 export const metadata: Metadata = {
