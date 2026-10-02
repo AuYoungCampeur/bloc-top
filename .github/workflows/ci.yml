@@ -44,3 +44,20 @@ jobs:
         run: pnpm test:ct
       - name: Build both applications without service credentials
         run: pnpm build
+
+  required-checks:
+    # Keep the existing protected-branch check names. Each requires the complete
+    # Node 22/24 matrix, including builds, rather than weakening the release gate.
+    needs: verify
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    strategy:
+      matrix:
+        check: ['🔍 ESLint', '📘 TypeScript', '🧪 Unit Tests', '🎭 Playwright']
+    name: ${{ matrix.check }}
+    steps:
+      - name: Require successful verification on both Node versions
+        env:
+          VERIFY_RESULT: ${{ needs.verify.result }}
+        run: test "$VERIFY_RESULT" = success

@@ -84,6 +84,8 @@ Git hooks 实际行为：
 
 pre-push 的成功和失败路径已在临时 Git 仓库验证：仅检查提交快照，保留并恢复 staged、unstaged、untracked 改动及原有 stash。
 
+CI 在 Node 22/24 下分别执行全部检查与构建；四个汇总检查沿用 main 保护规则要求的 `🔍 ESLint`、`📘 TypeScript`、`🧪 Unit Tests`、`🎭 Playwright` 名称，只有整个矩阵成功才通过。
+
 仓库 [verify skill](../.agents/skills/verify/SKILL.md) 已改为上述 pnpm 工作区验证入口；它不授予提交/发布权限，也不将组件测试当作真实服务验收。
 
 ## 5. 生产构建与部署配置
